@@ -186,7 +186,7 @@ analyzeButton.addEventListener("click", async () => {
   analyzeButton.disabled = true;
   analyzeButton.textContent = "AI 분석 중입니다...";
   try {
-    const response = await fetch("http://127.0.0.1:8000/analyze", {
+    const response = await fetch("https://seedu-on-api.onrender.com/analyze", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -254,7 +254,7 @@ function renderPlanSelector() {
     generate.textContent = "AI가 로드맵을 설계하고 있습니다...";
     output.replaceChildren();
     try {
-      const response = await fetch("http://127.0.0.1:8000/plan", {
+      const response = await fetch("https://seedu-on-api.onrender.com/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
