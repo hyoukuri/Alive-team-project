@@ -63,11 +63,43 @@
     </section>
 
     <!-- 세 번째 화면 -->
-    <section id="plan-page" hidden>
-      <h1>나만의 진로 로드맵</h1>
-      <p>희망학과에 맞는 선택과목과 탐구활동을 추천합니다.</p>
-      <div id="plan-results"></div>
-    </section>
+    
+<section id="plan-page" hidden>
+  <h1>나만의 진로 로드맵</h1>
+  <p>희망 학과에 맞는 선택과목과 탐구활동을 추천합니다.</p>
+
+  <div class="result-card">
+    <h2>희망 학과 선택</h2>
+    <p>AI가 추천한 학과 중 하나를 선택하거나 직접 입력하세요.</p>
+
+    <div id="major-selection"></div>
+
+    <div style="margin-top: 20px;">
+      <label for="custom-major">다른 학과 직접 입력</label>
+      <input
+        type="text"
+        id="custom-major"
+        placeholder="예: 인공지능학과, 컴퓨터공학과"
+        style="width: 100%; padding: 12px; margin-top: 8px;"
+      >
+    </div>
+
+    <button
+      type="button"
+      id="roadmap-button"
+      style="margin-top: 20px;"
+    >
+      AI 맞춤 로드맵 생성하기
+    </button>
+  </div>
+
+  <div id="plan-results"></div>
+
+  <button type="button" data-go-page="2">
+    이전 단계로 돌아가기
+  </button>
+</section>
+
   </main>
 
   <footer>
