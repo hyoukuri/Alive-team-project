@@ -1,0 +1,78 @@
+
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SEEDU:ON | 나의 진로 설계</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="script.js" defer></script>
+</head>
+<body>
+
+  <header>
+    <div class="logo">SEEDU<span>:ON</span></div>
+    <p>가능성을 발견하고, 진로를 켜다.</p>
+  </header>
+
+  <main>
+    <nav class="steps">
+      <div class="step active">01 생기부 입력</div>
+      <div class="step">02 AI 역량 분석</div>
+      <div class="step">03 맞춤 진로 설계</div>
+    </nav>
+
+    <!-- 첫 번째 화면 -->
+    <section id="input-page">
+      <h1>나의 가능성을 발견해 보세요</h1>
+      <p>학교생활기록부를 바탕으로 역량과 진로를 분석합니다.</p>
+
+      <h2>현재 학년</h2>
+      <select id="current-grade">
+        <option value="1">1학년</option>
+        <option value="2">2학년</option>
+        <option value="3">3학년</option>
+      </select>
+
+      <h2>학교생활기록부 입력</h2>
+
+      <div class="grade-tabs">
+        <button class="grade-tab active" data-grade="1">1학년</button>
+        <button class="grade-tab" data-grade="2">2학년</button>
+        <button class="grade-tab" data-grade="3">3학년</button>
+      </div>
+
+      <textarea id="student-record"
+        placeholder="과목명과 세부능력 및 특기사항을 입력해 주세요."></textarea>
+
+      <p id="character-count">0자 입력</p>
+
+      <h2>이수 과목 (선택)</h2>
+      <input type="text" id="completed-subjects"
+        placeholder="예: 공통수학1, 정보, 확률과 통계">
+
+      <button id="analyze-button">AI 분석 시작하기</button>
+    </section>
+
+    <!-- 두 번째 화면 -->
+    <section id="analysis-page" hidden>
+      <h1>AI 역량 분석 리포트</h1>
+      <p>나의 강점과 학년별 성장 과정을 확인합니다.</p>
+      <div id="analysis-results"></div>
+      <button id="go-to-plan">나의 진로 설계하기</button>
+    </section>
+
+    <!-- 세 번째 화면 -->
+    <section id="plan-page" hidden>
+      <h1>나만의 진로 로드맵</h1>
+      <p>희망학과에 맞는 선택과목과 탐구활동을 추천합니다.</p>
+      <div id="plan-results"></div>
+    </section>
+  </main>
+
+  <footer>
+    <p>SEEDU:ON · Your Potential, Your Path.</p>
+  </footer>
+
+</body>
+</html>
