@@ -98,3 +98,134 @@ footer { text-align: center; padding: 25px; color: #8493a2; font-size: 13px; }
 .activity-item { padding: 22px 0; border-top: 1px solid #e7edf3; }
 .activity-item:first-of-type { border-top: 0; }
 .activity-item .eyebrow { margin-bottom: 8px; }
+
+/* SEEDU:ON 진로 설계 화면 디자인 복원 */
+
+#plan-page > .result-card {
+  margin-bottom: 20px;
+}
+
+#major-selection {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 20px 0 24px;
+}
+
+.major-select-button {
+  padding: 13px 20px;
+  border: 2px solid #dce7f0;
+  border-radius: 12px;
+  background: #f3f7fb;
+  color: #102b46;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.major-select-button:hover {
+  border-color: #44d7bb;
+  background: #e9f9f5;
+}
+
+.major-select-button.active {
+  background: #102b46;
+  border-color: #44d7bb;
+  color: white;
+  box-shadow: 0 3px 0 #44d7bb;
+}
+
+#custom-major {
+  margin-top: 10px;
+  margin-bottom: 16px;
+}
+
+#roadmap-button {
+  display: block;
+  width: 100%;
+  padding: 17px;
+  margin-top: 20px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(110deg, #194d70, #3178c6);
+  color: white;
+  font-size: 17px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+#roadmap-button:hover {
+  filter: brightness(1.1);
+}
+
+#roadmap-button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+#plan-page [data-go-page="2"] {
+  display: block;
+  margin-top: 20px;
+  padding: 12px 20px;
+  border: 1px solid #d2dce6;
+  border-radius: 10px;
+  background: white;
+  color: #102b46;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#plan-results {
+  margin-top: 20px;
+}
+
+#plan-results:empty {
+  display: none;
+}
+
+.subject-item,
+.grade-plan-item {
+  padding: 18px;
+  margin-bottom: 12px;
+  border-radius: 12px;
+  background: #f6f9fc;
+  border: 1px solid #e6edf4;
+}
+
+.subject-item h3,
+.grade-plan-item h3 {
+  margin: 0 0 10px;
+  color: #102b46;
+}
+
+.activity-number {
+  display: inline-block;
+  margin-bottom: 10px;
+  color: #159e9c;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 1px;
+}
+
+.activity-steps,
+.grade-actions {
+  color: #53697b;
+  line-height: 1.9;
+}
+
+.expected-result,
+.advice-text {
+  color: #53697b;
+  line-height: 1.8;
+}
+
+@media (max-width: 650px) {
+  #major-selection {
+    flex-direction: column;
+  }
+
+  .major-select-button {
+    width: 100%;
+  }
+}
