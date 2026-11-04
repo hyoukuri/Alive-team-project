@@ -1017,7 +1017,7 @@ if (goRoadmapButton) {
       alert("AI 역량 분석을 먼저 진행해 주세요.");
       return;
     }
-
+    setupMajorSelection(latestAnalysis.majors);
     showPage(3);
   });
 }
