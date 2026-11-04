@@ -1014,14 +1014,15 @@ function initializeApp() {
     $("start-roadmap");
 
   if (goRoadmapButton) {
-    goRoadmapButton.addEventListener("click", () => {
-      const majorInput =
-        $("custom-major") ||
-        $("major-input");
+  goRoadmapButton.addEventListener("click", () => {
+    if (!latestAnalysis) {
+      alert("AI 역량 분석을 먼저 진행해 주세요.");
+      return;
+    }
 
-      if (majorInput) majorInput.focus();
-    });
-  }
+    showPage(3);
+  });
+}
 
   const backButtons =
     document.querySelectorAll("[data-go-page]");
