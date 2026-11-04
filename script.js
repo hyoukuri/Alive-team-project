@@ -1009,11 +1009,9 @@ function initializeApp() {
     );
   }
 
-  const goRoadmapButton =
-    $("go-roadmap") ||
-    $("start-roadmap");
+  const goRoadmapButton = $("go-to-plan");
 
-  if (goRoadmapButton) {
+if (goRoadmapButton) {
   goRoadmapButton.addEventListener("click", () => {
     if (!latestAnalysis) {
       alert("AI 역량 분석을 먼저 진행해 주세요.");
