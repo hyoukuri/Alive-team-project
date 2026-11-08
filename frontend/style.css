@@ -229,3 +229,84 @@ footer { text-align: center; padding: 25px; color: #8493a2; font-size: 13px; }
     width: 100%;
   }
 }
+
+/* SEEDU:ON 전체 배경 개선 */
+:root {
+  --background: #101c30;
+}
+
+body {
+  background: linear-gradient(
+    145deg,
+    #101827 0%,
+    #172b45 55%,
+    #102b46 100%
+  );
+  background-attachment: fixed;
+  min-height: 100vh;
+}
+
+/* 상단 단계 표시 */
+.step {
+  background: #243b55;
+  color: #c5d5e5;
+}
+
+.step.active {
+  background: #3178c6;
+  color: #ffffff;
+  border-bottom: 4px solid #44d7bb;
+}
+
+/* 입력 화면 */
+#input-page {
+  background: #f8fafc;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.2);
+}
+
+/* 분석 및 진로 설계 화면의 바깥 영역 */
+#analysis-page,
+#plan-page {
+  background: transparent !important;
+}
+
+/* 결과 카드 */
+.result-intro,
+.result-card {
+  background: #ffffff;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.14);
+}
+
+/* 두 번째 화면 뒤로 가기 */
+#analysis-page .back-button {
+  display: inline-block;
+  padding: 12px 20px;
+  margin-bottom: 20px;
+  border: 1px solid #536e8b;
+  border-radius: 10px;
+  background: #243b55;
+  color: #ffffff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#analysis-page .back-button:hover {
+  background: #3178c6;
+}
+
+/* 세 번째 화면 뒤로 가기 */
+#plan-page [data-go-page="2"] {
+  background: #243b55;
+  color: #ffffff;
+  border-color: #536e8b;
+}
+
+#plan-page [data-go-page="2"]:hover {
+  background: #3178c6;
+}
+
+/* 하단 문구 */
+footer {
+  color: #b8c9dc;
+}
