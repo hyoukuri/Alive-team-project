@@ -310,3 +310,23 @@ body {
 footer {
   color: #b8c9dc;
 }
+
+
+
+/* 첫 번째 화면 - 부드러운 블루그레이 톤 */
+#input-page {
+  background: #e9eef3 !important;
+  box-shadow: 0 12px 35px rgba(0, 0, 0, 0.12);
+}
+
+#input-page select,
+#input-page textarea {
+  background: #f3f5f6;
+  border-color: #ced8e2;
+}
+
+#input-page .grade-tab:not(.active) {
+  background: #dce4ec;
+  color: #52677a;
+}
+
