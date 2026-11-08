@@ -231,7 +231,16 @@ function renderDashboard(data) {
   competencies.append(scores);
   analysisResults.append(competencies);
 
+  
   const majors = card("추천 학과 TOP 3");
+
+  const categoryMax = {
+    "전공 관련 활동": 30,
+    "학업 역량": 25,
+    "관심의 지속성": 20,
+    "탐구 심화도": 15,
+    "융합 역량": 10
+  };
 
   data.majors.forEach((item, i) => {
     const box = el("div", "major-item");
@@ -240,26 +249,85 @@ function renderDashboard(data) {
     top.append(
       el("strong", "", `${i + 1}. ${item.name}`)
     );
+
+    const hasScore = item.fit !== null;
+
     top.append(
-      el("span", "fit-number", `${Math.round(item.fit)}%`)
+      el(
+        "span",
+        "fit-number",
+        hasScore
+          ? `${item.fit.toFixed(1)} / 100`
+          : "평가 점수 없음"
+      )
     );
 
-    const track = el("div", "bar-track");
-    const fill = el(
-      "div",
-      "bar-fill major-fill"
-    );
+    box.append(top);
 
-    fill.style.width =
-      `${Math.max(0, Math.min(100, item.fit))}%`;
+    if (hasScore) {
+      const track = el("div", "bar-track");
+      const fill = el("div", "bar-fill major-fill");
 
-    track.append(fill);
+      fill.style.width = `${item.fit}%`;
+      track.append(fill);
+      box.append(track);
+    }
 
     box.append(
-      top,
-      track,
       el("p", "evidence", item.reason)
     );
+
+    if (hasScore) {
+      const details = el("div", "major-fit-details");
+
+      details.style.marginTop = "16px";
+
+      Object.entries(categoryMax).forEach(
+        ([category, maximum]) => {
+          const value = Number(
+            item.categoryScores[category]
+          );
+
+          if (!Number.isFinite(value)) return;
+
+          const row = el("div", "score-item");
+          const heading = el("div", "score-heading");
+
+          heading.append(
+            el("strong", "", category),
+            el(
+              "span",
+              "score-number",
+              `${value.toFixed(1)} / ${maximum}`
+            )
+          );
+
+          const track = el("div", "bar-track");
+          const fill = el("div", "bar-fill");
+
+          fill.style.width =
+            `${Math.max(0, Math.min(100, value / maximum * 100))}%`;
+
+          track.append(fill);
+          row.append(heading, track);
+          details.append(row);
+        }
+      );
+
+      if (item.evidence) {
+        details.append(
+          el("p", "evidence", `평가 근거: ${item.evidence}`)
+        );
+      }
+
+      if (item.improvement) {
+        details.append(
+          el("p", "evidence", `보완 방향: ${item.improvement}`)
+        );
+      }
+
+      box.append(details);
+    }
 
     majors.append(box);
   });
@@ -268,11 +336,13 @@ function renderDashboard(data) {
     el(
       "p",
       "disclaimer",
-      "※ 적합도는 AI가 추정한 참고 지표이며, 대학 합격 확률이 아닙니다."
+      "※ 전공 적합성은 학생부 기록에 근거한 자체 평가 지표이며, 대학 합격 확률이나 공식 입학 평가 점수가 아닙니다."
     )
   );
 
   analysisResults.append(majors);
+
+
 
   const growth = card("학년별 성장 과정");
   const timeline = el("div", "growth-timeline");
@@ -411,6 +481,7 @@ function normalizeCompetencies(raw) {
   });
 }
 
+
 function normalizeMajors(raw) {
   const source =
     raw.recommended_majors ??
@@ -419,31 +490,47 @@ function normalizeMajors(raw) {
     raw.recommendations ??
     [];
 
+  const fitResults = Array.isArray(raw.major_fit)
+    ? raw.major_fit
+    : [];
+
   return asArray(source).slice(0, 3).map((item, i) => {
-    if (typeof item === "string") {
-      return {
-        name: item,
-        fit: Math.max(60, 90 - i * 5),
-        reason: "세특에 나타난 관심 분야를 바탕으로 추천했습니다."
-      };
-    }
+    const name = typeof item === "string"
+      ? item
+      : asText(
+          item.major ?? item.name ?? item.department,
+          `추천 학과 ${i + 1}`
+        );
+
+    const reason = typeof item === "string"
+      ? "세특에 나타난 관심 분야를 바탕으로 추천했습니다."
+      : asText(
+          item.reason ?? item.description ?? item.explanation,
+          "학생의 탐구 활동과 관심 분야를 고려했습니다."
+        );
+
+    const evaluation = fitResults.find(
+      (entry) => entry.major === name
+    );
+
+    const score = Number(evaluation?.total_score);
+    const hasScore =
+      evaluation?.total_score != null &&
+      Number.isFinite(score) &&
+      score >= 0 &&
+      score <= 100;
 
     return {
-      name: asText(
-        item.major ?? item.name ?? item.department,
-        `추천 학과 ${i + 1}`
-      ),
-      fit: toScore(
-        item.fit ?? item.score ?? item.match,
-        Math.max(60, 90 - i * 5)
-      ),
-      reason: asText(
-        item.reason ?? item.description ?? item.explanation,
-        "학생의 탐구 활동과 관심 분야를 고려했습니다."
-      )
+      name,
+      reason,
+      fit: hasScore ? score : null,
+      categoryScores: evaluation?.category_scores ?? {},
+      evidence: asText(evaluation?.evidence, ""),
+      improvement: asText(evaluation?.improvement, "")
     };
   });
 }
+
 
 function normalizeGrowth(raw, currentGrade) {
   const source =
