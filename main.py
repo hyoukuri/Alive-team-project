@@ -160,44 +160,52 @@ MAJOR_FIT_RUBRIC = {
 }
 
 
+
 def calculate_major_fit(ratings: dict) -> dict:
     """
-    각 세부 지표의 0~4등급을
-    가중치가 반영된 100점 만점으로 환산한다.
+    AI가 반환한 평가 등급을 가중치 점수로 변환한다.
+    누락된 지표는 근거가 확인되지 않은 것으로 처리한다.
     """
+
     if not isinstance(ratings, dict):
-        raise ValueError("평가 데이터 형식 오류")
+        ratings = {}
 
     category_scores = {}
     total = 0.0
+    missing_indicators = []
 
     for category, indicators in MAJOR_FIT_RUBRIC.items():
         subtotal = 0.0
 
-        for indicator, maximum in indicators.items():
-            rating = ratings[category][indicator]
+        category_ratings = ratings.get(category, {})
 
-            if (
-                type(rating) is not int
-                or not 0 <= rating <= 4
-            ):
-                raise ValueError(
-                    f"잘못된 평가 등급: "
+        if not isinstance(category_ratings, dict):
+            category_ratings = {}
+
+        for indicator, maximum in indicators.items():
+            rating = category_ratings.get(indicator)
+
+            if type(rating) is not int or not 0 <= rating <= 4:
+                missing_indicators.append(
                     f"{category} / {indicator}"
                 )
+                continue
 
             subtotal += rating / 4 * maximum
 
-        category_scores[category] = round(
-            subtotal, 2
-        )
+        category_scores[category] = round(subtotal, 2)
         total += subtotal
+
+    if missing_indicators:
+        raise ValueError(
+            "AI 평가 항목 누락 또는 형식 오류: "
+            + ", ".join(missing_indicators)
+        )
 
     return {
         "total_score": round(total, 2),
         "category_scores": category_scores,
     }
-
 
 # ==============================
 # 서버 상태 확인
