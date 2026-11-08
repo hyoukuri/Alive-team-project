@@ -105,10 +105,10 @@ def integer_rating(value):
 
 
 def calculate_major_fit(ratings):
-    """15개 등급을 검증하고 영역별 가중 점수와 총점을 계산한다."""
+    """16개 등급을 검증하고 영역별 가중 점수와 총점을 계산한다."""
     if isinstance(ratings, list):
         if len(ratings) != len(INDICATORS):
-            raise ValueError(f"평가 등급이 {len(ratings)}개입니다. 15개가 필요합니다.")
+            raise ValueError(f"평가 등급이 {len(ratings)}개입니다. 16개가 필요합니다.")
         values = [integer_rating(v) for v in ratings]
     elif isinstance(ratings, dict):
         values = []
@@ -207,8 +207,8 @@ def analyze(request: AnalyzeRequest):
 3=구체적 과정과 성취 확인, 4=자기주도적 심화·검증·발전 근거 충분.
 서버가 rating * 25로 100점 환산한다. 근거가 없으면 높게 평가하지 않는다.
 
-서로 다른 학과 3개를 추천하고 학과별 전공 적합성 15개 지표를 평가한다.
-ratings는 아래 순서대로 0~4 정수 15개를 담은 배열로 작성한다.
+서로 다른 학과 3개를 추천하고 학과별 전공 적합성 16개 지표를 평가한다.
+ratings는 아래 순서대로 0~4 정수 16개를 담은 배열로 작성한다.
 전공 적합성은 서버가 각 등급/4*가중치로 계산한다.
 평가 지표 순서와 가중치:\n""" + json.dumps(rubric_order, ensure_ascii=False) + """
 
@@ -227,16 +227,16 @@ ratings는 아래 순서대로 0~4 정수 15개를 담은 배열로 작성한다
     {"major":"학과명3","reason":"추천 이유"}
   ],
   "major_fit": [
-    {"major":"학과명1","ratings":[3,3,2,3,3,2,3,2,2,3,3,2,2,3,2],"evidence":"실제 활동 근거","improvement":"보완 방향"},
-    {"major":"학과명2","ratings":[2,3,2,3,2,2,2,2,2,2,2,2,2,2,2],"evidence":"실제 활동 근거","improvement":"보완 방향"},
-    {"major":"학과명3","ratings":[2,2,2,2,2,2,2,2,2,2,2,2,2,2,2],"evidence":"실제 활동 근거","improvement":"보완 방향"}
+    {"major":"학과명1","ratings":[3,3,2,3,3,2,3,2,2,3,3,2,2,2,3,2],"evidence":"실제 활동 근거","improvement":"보완 방향"},
+    {"major":"학과명2","ratings":[2,3,2,3,2,2,2,2,2,2,2,2,2,2,2,2],"evidence":"실제 활동 근거","improvement":"보완 방향"},
+    {"major":"학과명3","ratings":[2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2],"evidence":"실제 활동 근거","improvement":"보완 방향"}
   ],
   "strengths":["강점1","강점2"],
   "weaknesses":["보완점1","보완점2"],
   "growth":"실제 기록에 근거한 학년별 성장 설명"
 }
 필수: competencies 5개, recommended_majors 3개, major_fit 3개,
-각 major_fit의 ratings 정확히 15개, 학과명 일치, 모든 등급 0~4 정수.
+각 major_fit의 ratings 정확히 16개, 학과명 일치, 모든 등급 0~4 정수.
 위 예시 학과명과 숫자를 그대로 복사하지 말 것.
 입력된 기록과 관련된 학과별 특성에 맞춰 독립적으로 평가한다.
 공식 대학 합격 가능성 또는 입학 평가 결과라고 표현하지 않는다."""
@@ -245,7 +245,7 @@ ratings는 아래 순서대로 0~4 정수 15개를 담은 배열로 작성한다
     for attempt in range(2):
         prompt = user_prompt if attempt == 0 else user_prompt + (
             "\n이전 응답은 검증에 실패했습니다: " + last_error +
-            "\n이번에는 필수 키, 학과명 일치, 5개 핵심역량 및 학과별 15개 등급을 정확히 작성하세요."
+            "\n이번에는 필수 키, 학과명 일치, 5개 핵심역량 및 학과별 16개 등급을 정확히 작성하세요."
         )
         try:
             return validate_analysis(ask_ai(system_prompt, prompt))
