@@ -329,3 +329,25 @@ footer {
   background: #dce4ec;
   color: #52677a;
 }
+
+/* 과목 선택 및 세특 입력 영역 여백 조정 */
+
+.subject-input-area label {
+  display: block;
+  margin-top: 24px;
+  margin-bottom: 10px;
+  font-weight: 600;
+  color: #34495e;
+}
+
+#subject-select {
+  display: block;
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+#subject-record {
+  display: block;
+  width: 100%;
+  margin-top: 0;
+}
