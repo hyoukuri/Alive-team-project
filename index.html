@@ -42,10 +42,37 @@
         <button class="grade-tab" data-grade="3">3학년</button>
       </div>
 
-      <textarea id="student-record"
-        placeholder="과목명과 세부능력 및 특기사항을 입력해 주세요."></textarea>
+      
+      <div class="subject-input-area">
+        <h3>과목별 세특 입력</h3>
+        <p>과목을 선택하고 세부능력 및 특기사항을 등록하세요.</p>
 
-      <p id="character-count">0자 입력</p>
+        <label for="subject-select">과목 선택</label>
+        <select id="subject-select">
+          <option value="">과목을 선택하세요</option>
+        </select>
+
+        <label for="subject-record">세부능력 및 특기사항</label>
+        <textarea
+          id="subject-record"
+          placeholder="선택한 과목의 세특 내용을 입력하세요."
+        ></textarea>
+
+        <p id="character-count">0자 입력</p>
+
+        <button type="button" id="add-subject-button">
+          + 과목 등록하기
+        </button>
+
+        <h3>등록한 과목</h3>
+        <div id="registered-subjects">
+          <p>아직 등록한 과목이 없습니다.</p>
+        </div>
+      </div>
+
+      <!-- 기존 JavaScript와의 호환성을 위한 입력 데이터 -->
+      <textarea id="student-record" hidden></textarea>
+
       
       <button id="analyze-button">AI 분석 시작하기</button>
 
