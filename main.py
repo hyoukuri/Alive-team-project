@@ -82,10 +82,12 @@ def ask_ai(system_prompt, user_prompt):
         response = get_client().chat.completions.create(
             model=MODEL,
             messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-            temperature=0.2,
+            temperature=0,
         )
         return parse_json(response.choices[0].message.content)
     except HTTPException:
+        raise
+    except ValueError:
         raise
     except Exception as exc:
         print(f"AI 요청 오류: {type(exc).__name__}: {exc}")
@@ -191,6 +193,27 @@ def health():
     return {"status": "ok"}
 
 
+# 동일 입력에 대한 분석 결과 임시 저장
+ANALYSIS_CACHE = {}
+ANALYSIS_VERSION = "v1"
+
+
+def analysis_cache_key(request):
+    data = request.model_dump()
+
+    # 순서가 같은 입력은 동일한 키 사용
+    normalized = json.dumps(
+        data,
+        ensure_ascii=False,
+        sort_keys=True
+    )
+
+    return (
+        ANALYSIS_VERSION,
+        MODEL,
+        normalized
+    )
+
 @app.post("/analyze")
 def analyze(request: AnalyzeRequest):
     rubric_order = [{"index": i + 1, "category": cat, "indicator": indicator, "weight": weight}
@@ -240,7 +263,18 @@ ratings는 아래 순서대로 0~4 정수 16개를 담은 배열로 작성한다
 위 예시 학과명과 숫자를 그대로 복사하지 말 것.
 입력된 기록과 관련된 학과별 특성에 맞춰 독립적으로 평가한다.
 공식 대학 합격 가능성 또는 입학 평가 결과라고 표현하지 않는다."""
-    user_prompt = json.dumps(request.model_dump(), ensure_ascii=False)
+    
+    cache_key = analysis_cache_key(request)
+
+    if cache_key in ANALYSIS_CACHE:
+        print("저장된 AI 분석 결과 재사용")
+        return ANALYSIS_CACHE[cache_key]
+
+    user_prompt = json.dumps(
+        request.model_dump(),
+        ensure_ascii=False
+    )
+
     last_error = ""
     for attempt in range(2):
         prompt = user_prompt if attempt == 0 else user_prompt + (
@@ -248,7 +282,15 @@ ratings는 아래 순서대로 0~4 정수 16개를 담은 배열로 작성한다
             "\n이번에는 필수 키, 학과명 일치, 5개 핵심역량 및 학과별 16개 등급을 정확히 작성하세요."
         )
         try:
-            return validate_analysis(ask_ai(system_prompt, prompt))
+            
+            result = validate_analysis(
+                ask_ai(system_prompt, prompt)
+            )
+
+            ANALYSIS_CACHE[cache_key] = result
+
+            return result
+
         except ValueError as exc:
             last_error = str(exc)
             print(f"AI 분석 검증 실패 ({attempt + 1}/2): {last_error}")
