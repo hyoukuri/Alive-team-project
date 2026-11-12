@@ -218,6 +218,20 @@ function radarChart(items) {
 function renderDashboard(data) {
   analysisResults.replaceChildren();
 
+  // AI 서비스 오류는 학생부의 근거 부족(N/E)과 다르다.
+  if (data.aiReview?.status === "error" || data.aiReview?.status === "fallback") {
+    const failed = card("분석 서비스 오류", "span-full");
+    failed.append(el("p", "evidence", "학생부 내용이 부족하다는 뜻이 아닙니다. AI 의미 분석이 완료되지 않아 점수와 추천을 생성하지 않았습니다."));
+    failed.append(el("p", "evidence", "Render의 환경변수 OPENROUTER_API_KEY / OPENROUTER_MODEL을 확인하고, 서버 로그에서 실제 오류 원인을 확인해 주세요."));
+    const retry = el("button", "btn btn-primary", "다시 분석하기");
+    retry.type = "button";
+    retry.style.marginTop = "16px";
+    retry.addEventListener("click", () => showPage(1));
+    failed.append(retry);
+    analysisResults.append(failed);
+    return;
+  }
+
   const title = el("div", "result-intro");
   title.append(
     el("p", "eyebrow", data.aiReview?.used ? "SEEDU:ON · SEMANTIC ANALYSIS" : "SEEDU:ON · ANALYSIS PENDING")
@@ -251,7 +265,7 @@ function renderDashboard(data) {
 
     heading.append(el("strong", "", item.name));
     heading.append(
-      el("span", "score-number", item.score === null ? "근거 부족" : `${Math.round(item.score)} / 100`)
+      el("span", "score-number", item.score === null ? "평가 보류" : `${Math.round(item.score)} / 100`)
     );
 
     box.append(heading);
@@ -980,6 +994,9 @@ async function runAnalysis() {
     latestAnalysis = data;
     renderDashboard(data);
     showPage(2);
+
+    // 분석 서비스 장애 시 무효한 결과를 정상 평가처럼 저장하지 않는다.
+    if (data.aiReview?.status === "error" || data.aiReview?.status === "fallback") return;
 
     // 추천 학과 선택 버튼 생성
     setupMajorSelection(data.majors);
