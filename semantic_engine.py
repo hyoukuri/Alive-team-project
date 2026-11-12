@@ -249,17 +249,17 @@ def build_analysis(raw, records, text, grade, sources, candidates):
 
 
 def safe_fallback(records, text, grade, reason="ai_unavailable"):
-    # No lexical scoring as authoritative! Return neutral N/E grades and useful source/candidate info.
+    # System outage is not an evaluation of student evidence. Never label outage as N/E.
     sources = prepare(records,text,grade)
     candidates = candidates_from_sources(sources)[:3]
     return {"rubric_version":VERSION,"analysis_mode":"evidence_pending",
-            "competencies":[{"name":n,"rating":None,"score":None,"status":"insufficient_evidence",
-                             "evidence":"AI 의미 검토를 완료하지 못해 평가를 보류했습니다."} for n in COMPETENCY_NAMES],
+            "competencies":[{"name":n,"rating":None,"score":None,"status":"analysis_unavailable",
+                             "evidence":"분석 서비스 오류로 평가가 실행되지 않았습니다. 학생부 근거 부족 판정이 아닙니다."} for n in COMPETENCY_NAMES],
             "recommended_majors":[{"major":m,"reason":"추가 의미 검토가 필요한 탐색 후보입니다. 적합도 순위가 아닙니다."} for m in candidates],
             "major_fit":[{"major":m,"ratings":{},"category_scores":{},"total_score":None,"partial_score":0,
                          "coverage_weight":0,"score_status":"insufficient_evidence", "evidence":"AI 의미 검토 미완료", "improvement":"재분석 후 평가를 확인하세요."} for m in candidates],
             "strengths":["학생부 기록은 정상적으로 접수되었습니다."],
             "weaknesses":["AI 평가가 완료되지 않아 역량 점수는 제공하지 않습니다."],
-            "growth":[{"grade":g,"summary":"입력 기록이 존재하지만 의미 평가는 보류되었습니다."} for g in range(1,grade+1) if any(s["grade"]==g for s in sources)],
-            "assessment_notice":"AI 검토 실패: 실제 근거 확인 없이 키워드만으로 점수를 부여하지 않았습니다.",
+            "growth":[{"grade":g,"summary":"입력 기록은 접수되었지만 AI 서비스 오류로 평가하지 못했습니다."} for g in range(1,grade+1) if any(s["grade"]==g for s in sources)],
+            "assessment_notice":"학생부 평가 미실행: AI 서비스 오류가 발생했습니다. 근거 부족(N/E) 판정이 아닙니다.",
             "fallback_reason":reason}
