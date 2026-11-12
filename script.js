@@ -220,7 +220,7 @@ function renderDashboard(data) {
 
   const title = el("div", "result-intro");
   title.append(
-    el("p", "eyebrow", data.aiReview?.used ? "SEEDU:ON · HYBRID ANALYSIS" : "SEEDU:ON · RULE-BASED ANALYSIS")
+    el("p", "eyebrow", data.aiReview?.used ? "SEEDU:ON · SEMANTIC ANALYSIS" : "SEEDU:ON · ANALYSIS PENDING")
   );
   title.append(
     el("h2", "result-title", "나의 역량 분석 리포트")
@@ -229,7 +229,7 @@ function renderDashboard(data) {
     el(
       "p",
       "muted",
-      data.aiReview?.used ? "Python 루브릭을 기준으로 채점하고, AI는 근거가 확인된 학과 설명만 보완했습니다. 근거 부족 항목은 평가하지 않습니다." : "Python 루브릭으로 분석한 참고용 결과입니다. AI 검토가 생략되거나 실패해도 기본 분석은 제공됩니다. 근거 부족 항목은 평가하지 않습니다."
+      data.aiReview?.used ? "AI가 학생부 문맥과 수행 근거를 분석하고 Python이 등급을 검증했습니다. N/E는 점수로 환산하지 않습니다." : "AI 의미 검토를 완료하지 못해 점수 평가를 보류했습니다. 기록 내용은 보존되며 재분석할 수 있습니다."
     )
   );
 
@@ -237,7 +237,11 @@ function renderDashboard(data) {
 
   const competencies = card("5대 핵심 역량", "span-full");
   const competencyLayout = el("div", "competency-layout");
-  competencyLayout.append(radarChart(data.competencies));
+  if (data.competencies.every(item => item.score !== null)) {
+    competencyLayout.append(radarChart(data.competencies));
+  } else {
+    competencyLayout.append(el("p", "muted", "근거 부족(N/E) 항목이 있어 레이더 차트를 표시하지 않습니다. 누락을 0점으로 간주하지 않습니다."));
+  }
 
   const scores = el("div", "score-grid");
 
@@ -260,10 +264,8 @@ function renderDashboard(data) {
 
     track.append(fill);
 
-    box.append(
-      track,
-      el("p", "evidence", item.evidence)
-    );
+    if (item.score !== null) box.append(track);
+    box.append(el("p", "evidence", item.evidence));
 
     scores.append(box);
   });
@@ -312,7 +314,7 @@ function renderDashboard(data) {
         "p",
         "major-rank",
         item.scoreStatus === "insufficient_evidence"
-          ? `${i + 1}위 · 관련 근거 기반 추천 (평가 보류)`
+          ? `탐색 후보 ${i + 1} · 종합 적합도 평가 보류`
           : hasScore
             ? `${i + 1}위 · ${fitLevel(item.fit)}`
             : `${i + 1}위 · 평가 근거 부족`
@@ -439,6 +441,7 @@ function asText(value, fallback = "") {
 }
 
 function toScore(value, fallback = 70) {
+  if (value === null || value === undefined || value === "") return fallback;
   const number = Number(value);
 
   if (!Number.isFinite(number)) return fallback;
@@ -475,7 +478,7 @@ function normalizeCompetencies(raw) {
 
       return {
         name: asText(item.name ?? item.label, name),
-        score: (item.score === null && item.status === "insufficient_evidence") ? null : toScore(item.score ?? item.value),
+        score: (item.score === null || item.status === "insufficient_evidence") ? null : toScore(item.score ?? item.value),
         evidence: asText(
           item.evidence ?? item.reason ?? item.description,
           "세특에서 확인된 활동을 바탕으로 평가했습니다."
@@ -497,7 +500,7 @@ function normalizeCompetencies(raw) {
 
     return {
       name,
-      score: toScore(value?.score ?? value?.value),
+      score: (value?.score === null || value?.status === "insufficient_evidence") ? null : toScore(value?.score ?? value?.value),
       evidence: asText(
         value?.evidence ?? value?.reason,
         "세특에서 확인된 활동을 바탕으로 평가했습니다."
