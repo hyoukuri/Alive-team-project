@@ -116,16 +116,42 @@
         <button type="button" class="grade-tab" data-grade="3">3학년</button>
       </div>
 
+      
       <div class="subject-input-area">
-        <h3>과목별 세특 입력</h3>
-        <p class="hint">과목을 선택하고 세부능력 및 특기사항을 등록하세요.</p>
+        <h3>학교생활기록부 활동 입력</h3>
+        <p class="hint">
+          교과 세특과 창의적 체험활동 등을 구분하여 등록하세요.
+        </p>
 
-        <label for="subject-select">과목 선택</label>
-        <select id="subject-select">
-          <option value="">과목을 선택하세요</option>
+        <label for="record-category">학생부 영역 선택</label>
+        <select id="record-category">
+          <option value="subject">교과 세특</option>
+          <option value="autonomy">자율·자치활동</option>
+          <option value="club">동아리활동</option>
+          <option value="career">진로활동</option>
+          <option value="behavior">행동특성 및 종합의견</option>
         </select>
 
-        <label for="subject-record">세부능력 및 특기사항</label>
+        <div id="subject-field">
+          <label for="subject-select">과목 선택</label>
+          <select id="subject-select">
+            <option value="">과목을 선택하세요</option>
+          </select>
+        </div>
+
+        <div id="activity-field" hidden>
+          <label for="activity-title">활동명 (선택)</label>
+          <input
+            type="text"
+            id="activity-title"
+            maxlength="100"
+            placeholder="예: 인공지능 탐구 동아리"
+          >
+        </div>
+
+        <label for="subject-record" id="record-content-label">
+          세부능력 및 특기사항
+        </label>
         <textarea
           id="subject-record"
           placeholder="선택한 과목의 세특 내용을 입력하세요."
@@ -134,14 +160,15 @@
         <p id="character-count">0자 입력</p>
 
         <button type="button" id="add-subject-button" class="btn btn-secondary">
-          + 과목 등록하기
+          + 기록 등록하기
         </button>
 
-        <h3>등록한 과목</h3>
+        <h3>등록된 학생부 기록</h3>
         <div id="registered-subjects">
-          <p>아직 등록한 과목이 없습니다.</p>
+          <p>아직 등록한 기록이 없습니다.</p>
         </div>
       </div>
+
 
       <!-- 기존 JavaScript와의 호환성을 위한 입력 데이터 -->
       <textarea id="student-record" hidden></textarea>
