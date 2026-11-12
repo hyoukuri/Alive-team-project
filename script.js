@@ -63,6 +63,8 @@ function showPage(page) {
   $("input-page").hidden = page !== 1;
   $("analysis-page").hidden = page !== 2;
   $("plan-page").hidden = page !== 3;
+  const recordsPage = $("records-page");
+  if (recordsPage) recordsPage.hidden = page !== 4;
 
   steps.forEach((step, i) =>
     step.classList.toggle("active", i === page - 1)
@@ -77,6 +79,9 @@ function showPage(page) {
   }
 
   window.scrollTo(0, 0);
+
+  // 내 기록 화면은 열 때마다 서버에서 최신 목록을 불러온다
+  if (page === 4 && typeof loadRecords === "function") loadRecords();
 }
 
 function el(tag, className, content) {
@@ -968,6 +973,9 @@ async function runAnalysis() {
     // 추천 학과 선택 버튼 생성
     setupMajorSelection(data.majors);
 
+    // 로그인 상태면 결과 저장, 비회원이면 저장 배너 표시
+    onAnalysisComplete(data, currentGrade);
+
   } catch (error) {
     console.error("AI 분석 오류:", error);
     alert(error.message);
@@ -1138,7 +1146,7 @@ if (goRoadmapButton) {
   backButtons.forEach((button) => {
     button.addEventListener("click", () => {
       const page = Number(button.dataset.goPage);
-      if ([0, 1, 2, 3].includes(page)) {
+      if ([0, 1, 2, 3, 4].includes(page)) {
         showPage(page);
       }
     });
@@ -1542,3 +1550,547 @@ if (document.readyState === "loading") {
     initSubjectInput();
   }
 })();
+
+
+/* =========================================
+   SEEDU:ON 로그인 / 분석 기록 저장
+   - 로그인·기록 API는 같은 사이트의 /api/... 로 요청한다
+     (Vercel이 Render 서버로 넘겨 준다 → httpOnly 쿠키 사용)
+   - 기존 /analyze, /roadmap 호출은 바꾸지 않는다
+   - 생기부 원문은 저장하지 않는다 (분석 결과 + 학년 + 과목명만 저장)
+========================================= */
+
+const auth = { loggedIn: false, username: null };
+
+// 결과 화면 상태: "live"(방금 분석) / "saved"(저장된 기록) / "sample"(예시)
+let analysisMode = "live";
+let currentLive = null;   // { grade, subjects, result, savedId, saving, error }
+let viewingRecord = null; // 저장된 기록을 볼 때의 요약 정보
+
+const SAMPLE_ANALYSIS = {
+  competencies: [
+    { name: "학업역량", score: 75, evidence: "(예시) 미분 단원의 변화율 개념을 실제 기록 자료에 적용함." },
+    { name: "진로역량", score: 75, evidence: "(예시) 데이터 분석과 관련된 탐구를 꾸준히 이어 감." },
+    { name: "탐구역량", score: 100, evidence: "(예시) 구간별 평균 변화율을 직접 계산하고 해석함." },
+    { name: "공동체역량", score: 50, evidence: "(예시) 모둠 활동에서 맡은 역할이 기록에 잘 드러나지 않음." },
+    { name: "성장가능성", score: 75, evidence: "(예시) 한계를 스스로 짚고 다음 계획을 제시함." }
+  ],
+  majors: [
+    { name: "데이터사이언스학과", reason: "(예시) 측정, 분석, 가설 검증 기록이 이 학과의 핵심 역량과 연결돼요.", fit: 84,
+      categoryScores: { "전공 관련 활동": 25, "학업 역량": 21, "관심의 지속성": 17, "탐구 심화도": 13, "융합 역량": 8 },
+      evidence: "", improvement: "" },
+    { name: "해양환경과학과", reason: "(예시) 관찰과 변수 통제 경험이 연결되지만 직접 근거는 적어요.", fit: 66,
+      categoryScores: {}, evidence: "", improvement: "" },
+    { name: "수학교육과", reason: "(예시) 설명하고 질문하는 기록이 보이지만 교육 관련 활동은 적어요.", fit: 62,
+      categoryScores: {}, evidence: "", improvement: "" }
+  ],
+  growth: [{ grade: 2, summary: "(예시) 자료를 직접 수집하고 분석하며 탐구가 깊어짐." }],
+  strengths: ["직접 측정하고 해석함", "한계를 스스로 짚음"],
+  improvements: ["협업·소통 근거가 적음"]
+};
+
+/* ---------- API ---------- */
+
+async function accountRequest(method, path, body) {
+  let response;
+
+  try {
+    response = await fetch(path, {
+      method,
+      credentials: "same-origin",
+      headers: body ? { "Content-Type": "application/json" } : {},
+      body: body ? JSON.stringify(body) : undefined
+    });
+  } catch (error) {
+    throw new Error("서버에 연결할 수 없어요. 잠시 후 다시 시도해 주세요.");
+  }
+
+  let data = null;
+  try {
+    data = await response.json();
+  } catch (error) {
+    data = null;
+  }
+
+  if (!response.ok) {
+    const detail = data && typeof data.detail === "string"
+      ? data.detail
+      : "요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요.";
+    const err = new Error(detail);
+    err.status = response.status;
+    throw err;
+  }
+
+  return data;
+}
+
+/* ---------- 공통 화면 도우미 ---------- */
+
+let toastTimer = null;
+
+function showToast(message) {
+  const toast = $("toast");
+  if (!toast) return;
+  toast.textContent = message;
+  toast.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { toast.hidden = true; }, 3200);
+}
+
+function formatDate(iso) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}.${pad(date.getMonth() + 1)}.${pad(date.getDate())}`;
+}
+
+function subjectsLabel(subjects) {
+  if (!subjects || subjects.length === 0) return "";
+  if (subjects.length <= 2) return subjects.join(", ");
+  return `${subjects.slice(0, 2).join(", ")} 외 ${subjects.length - 2}개`;
+}
+
+function setAuth(loggedIn, username) {
+  auth.loggedIn = loggedIn;
+  auth.username = loggedIn ? username : null;
+  document.body.dataset.auth = loggedIn ? "in" : "out";
+  const name = $("header-username");
+  if (name) name.textContent = auth.username || "";
+  renderResultExtra();
+}
+
+// 분석 결과에 쓰인 과목명만 모은다 (세특 원문은 보내지 않는다)
+function collectSubjectNames(grade) {
+  const names = [];
+  for (let g = 1; g <= grade; g++) {
+    const text = studentRecords[g] || "";
+    for (const match of text.matchAll(/\[과목: ([^\]\n]+)\]/g)) {
+      names.push(match[1].trim());
+    }
+  }
+  return [...new Set(names)];
+}
+
+/* ---------- 모달 (로그인 / 비회원 안내) ---------- */
+
+let modalOpener = null;
+
+function openDialog(id) {
+  const dialog = $(id);
+  if (!dialog) return;
+  if (!dialog.open) {
+    if (!modalOpener) modalOpener = document.activeElement;
+    dialog.showModal();
+  }
+}
+
+function closeDialog(id, restoreFocus = true) {
+  const dialog = $(id);
+  if (dialog && dialog.open) dialog.close();
+  if (restoreFocus && modalOpener && document.contains(modalOpener)) {
+    modalOpener.focus();
+  }
+  if (restoreFocus) modalOpener = null;
+}
+
+function setLoginError(message) {
+  const box = $("login-error");
+  const text = $("login-error-text");
+  const fields = [$("login-username"), $("login-password")];
+
+  if (message) {
+    text.textContent = message;
+    box.hidden = false;
+    fields.forEach((field) => field.setAttribute("aria-invalid", "true"));
+  } else {
+    text.textContent = "";
+    box.hidden = true;
+    fields.forEach((field) => field.removeAttribute("aria-invalid"));
+  }
+}
+
+function openLogin() {
+  setLoginError("");
+  openDialog("login-dialog");
+  $("login-username").focus();
+}
+
+async function submitLogin(event) {
+  event.preventDefault();
+
+  const username = $("login-username").value.trim();
+  const password = $("login-password").value;
+
+  if (!/^[A-Za-z0-9]{4,16}$/.test(username)) {
+    setLoginError("아이디는 영문과 숫자로 4~16자여야 해요.");
+    $("login-username").focus();
+    return;
+  }
+  if (password.length < 6) {
+    setLoginError("비밀번호는 6자 이상이어야 해요.");
+    $("login-password").focus();
+    return;
+  }
+
+  const button = $("login-submit");
+  setLoginError("");
+  setLoading(button, true, "확인 중...");
+
+  try {
+    const data = await accountRequest("POST", "/api/auth/login", { username, password });
+
+    $("login-form").reset();
+    closeDialog("login-dialog");
+    setAuth(true, data.username);
+    showToast(data.created
+      ? `새 계정이 만들어졌어요. ${data.username}님, 환영해요!`
+      : `${data.username}님, 다시 만나서 반가워요.`);
+
+    // 방금 본 결과가 아직 저장되지 않았다면 바로 저장
+    if (currentLive && !currentLive.savedId) saveLiveResult();
+  } catch (error) {
+    setLoginError(error.message);
+    $("login-password").value = "";
+    $("login-password").focus();
+  } finally {
+    setLoading(button, false);
+  }
+}
+
+async function logout() {
+  try {
+    await accountRequest("POST", "/api/auth/logout");
+  } catch (error) {
+    // 서버 오류여도 화면은 로그아웃 상태로 바꾼다
+  }
+  setAuth(false, null);
+  showToast("로그아웃했어요.");
+  if (!$("records-page").hidden || analysisMode === "saved") showPage(0);
+}
+
+/* ---------- 분석 결과 저장 ---------- */
+
+function onAnalysisComplete(data, grade) {
+  analysisMode = "live";
+  viewingRecord = null;
+  currentLive = {
+    grade,
+    subjects: collectSubjectNames(grade),
+    result: data,
+    savedId: null,
+    saving: false,
+    error: ""
+  };
+
+  if (auth.loggedIn) saveLiveResult();
+  else renderResultExtra();
+}
+
+async function saveLiveResult() {
+  if (!currentLive || currentLive.savedId || currentLive.saving) return;
+
+  currentLive.saving = true;
+  currentLive.error = "";
+  renderResultExtra();
+
+  try {
+    const saved = await accountRequest("POST", "/api/records", {
+      grade: currentLive.grade,
+      subjects: currentLive.subjects,
+      result: currentLive.result
+    });
+    currentLive.savedId = saved.id;
+  } catch (error) {
+    if (error.status === 401) setAuth(false, null);
+    currentLive.error = error.message;
+  } finally {
+    currentLive.saving = false;
+    renderResultExtra();
+  }
+}
+
+function infoIcon() {
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("aria-hidden", "true");
+  svg.classList.add("notice-icon");
+  svg.innerHTML = '<circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5"/><path d="M12 16.5h.01"/>';
+  return svg;
+}
+
+function resultNotice(text, extraClass = "") {
+  const box = el("div", `result-notice ${extraClass}`);
+  box.append(infoIcon(), el("p", "", text));
+  return box;
+}
+
+function renderResultExtra() {
+  const area = $("result-extra");
+  if (!area) return;
+  area.replaceChildren();
+
+  const back = $("result-back-button");
+  const goPlan = $("go-to-plan");
+
+  if (analysisMode === "sample") {
+    area.append(resultNotice("예시 데이터로 만든 화면이에요. 실제 분석 결과가 아니에요."));
+    if (back) { back.dataset.goPage = "0"; back.textContent = "← 홈으로"; }
+    if (goPlan) goPlan.hidden = true;
+    return;
+  }
+
+  if (analysisMode === "saved") {
+    const when = viewingRecord ? formatDate(viewingRecord.createdAt) : "";
+    area.append(resultNotice(`${when}에 저장한 기록이에요.`));
+    if (back) { back.dataset.goPage = "4"; back.textContent = "← 내 기록으로"; }
+    if (goPlan) goPlan.hidden = true;
+    return;
+  }
+
+  // 방금 분석한 결과
+  if (back) { back.dataset.goPage = "1"; back.textContent = "← 이전 단계로 돌아가기"; }
+  if (goPlan) goPlan.hidden = false;
+  if (!currentLive) return;
+
+  if (!auth.loggedIn) {
+    const banner = el("div", "save-banner");
+    const text = el("div", "save-banner-text");
+    text.append(
+      el("p", "save-banner-title", "이 결과를 저장해 두고 싶나요?"),
+      el("p", "save-banner-desc", "로그인하면 나중에도 내 기록에서 다시 볼 수 있어요.")
+    );
+    const button = el("button", "btn btn-primary", "로그인하고 저장하기");
+    button.type = "button";
+    button.addEventListener("click", openLogin);
+    banner.append(text, button);
+    area.append(banner);
+    return;
+  }
+
+  if (currentLive.saving) {
+    area.append(resultNotice("결과를 저장하는 중이에요..."));
+    return;
+  }
+
+  if (currentLive.error) {
+    const box = resultNotice(`저장하지 못했어요: ${currentLive.error}`, "is-error");
+    const retry = el("button", "btn btn-secondary", "다시 저장하기");
+    retry.type = "button";
+    retry.addEventListener("click", saveLiveResult);
+    box.append(retry);
+    area.append(box);
+    return;
+  }
+
+  if (currentLive.savedId) {
+    const box = el("div", "saved-status");
+    const text = el("div", "");
+    text.append(
+      el("p", "saved-status-title", "✓ 저장됨"),
+      el("p", "saved-status-desc",
+        "분석 결과(역량과 근거, 추천 학과, 강점·보완점)와 학년·과목명이 이 아이디에 저장됐어요. 입력한 세특 원문 전체는 저장하지 않아요.")
+    );
+    const link = el("button", "btn btn-secondary-dark", "내 기록 보기");
+    link.type = "button";
+    link.addEventListener("click", () => showPage(4));
+    box.append(text, link);
+    area.append(box);
+  }
+}
+
+/* ---------- 예시 결과 ---------- */
+
+function showSampleResult() {
+  analysisMode = "sample";
+  viewingRecord = null;
+  renderDashboard(SAMPLE_ANALYSIS);
+  renderResultExtra();
+  showPage(2);
+}
+
+/* ---------- 내 기록 ---------- */
+
+async function loadRecords() {
+  const list = $("records-list");
+  const status = $("records-status");
+  const empty = $("records-empty");
+  const deleteAll = $("delete-all-records");
+
+  list.replaceChildren();
+  empty.hidden = true;
+  deleteAll.hidden = true;
+
+  if (!auth.loggedIn) {
+    status.textContent = "";
+    showPage(0);
+    openLogin();
+    return;
+  }
+
+  status.textContent = "기록을 불러오는 중...";
+
+  try {
+    const data = await accountRequest("GET", "/api/records");
+    status.textContent = "";
+
+    if (data.records.length === 0) {
+      empty.hidden = false;
+      return;
+    }
+
+    deleteAll.hidden = false;
+    data.records.forEach((record) => list.append(recordCard(record)));
+  } catch (error) {
+    if (error.status === 401) {
+      setAuth(false, null);
+      showPage(0);
+      openLogin();
+      return;
+    }
+    status.textContent = error.message;
+  }
+}
+
+function recordCard(record) {
+  const card = el("article", "record-card");
+  const info = el("div", "record-info");
+
+  const meta = [formatDate(record.createdAt), `${record.grade}학년`, subjectsLabel(record.subjects)]
+    .filter(Boolean)
+    .join(" · ");
+  info.append(el("p", "record-meta", meta));
+
+  const title = el("div", "record-title");
+  title.append(
+    el("h2", "", record.topMajor),
+    el("span", "fit-pill", record.topFitLevel)
+  );
+  info.append(title);
+
+  if (record.keywords.length > 0) {
+    const chips = el("div", "record-chips");
+    record.keywords.forEach((word) => chips.append(el("span", "chip", word)));
+    info.append(chips);
+  }
+
+  const actions = el("div", "record-actions");
+  const view = el("button", "btn btn-primary btn-small", "결과 보기");
+  view.type = "button";
+  view.addEventListener("click", () => openRecord(record, view));
+
+  const remove = el("button", "btn btn-secondary btn-small", "삭제");
+  remove.type = "button";
+  remove.setAttribute("aria-label", `${meta} ${record.topMajor} 기록 삭제`);
+  remove.addEventListener("click", () => deleteRecord(record, remove));
+
+  actions.append(view, remove);
+  card.append(info, actions);
+  return card;
+}
+
+async function openRecord(record, button) {
+  setLoading(button, true, "불러오는 중...");
+  try {
+    const data = await accountRequest("GET", `/api/records/${record.id}`);
+    analysisMode = "saved";
+    viewingRecord = record;
+    renderDashboard(data.result);
+    renderResultExtra();
+    showPage(2);
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    setLoading(button, false);
+  }
+}
+
+async function deleteRecord(record, button) {
+  if (!confirm("이 기록을 삭제할까요? 삭제하면 복구할 수 없어요.")) return;
+
+  setLoading(button, true, "삭제 중...");
+  try {
+    await accountRequest("DELETE", `/api/records/${record.id}`);
+    if (currentLive && currentLive.savedId === record.id) currentLive.savedId = null;
+    showToast("기록을 삭제했어요.");
+    loadRecords();
+  } catch (error) {
+    alert(error.message);
+    setLoading(button, false);
+  }
+}
+
+async function deleteAllRecords() {
+  if (!confirm("모든 기록을 삭제할까요? 삭제하면 복구할 수 없어요.")) return;
+
+  const button = $("delete-all-records");
+  setLoading(button, true, "삭제 중...");
+  try {
+    await accountRequest("DELETE", "/api/records");
+    if (currentLive) currentLive.savedId = null;
+    showToast("모든 기록을 삭제했어요.");
+    loadRecords();
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    setLoading(button, false);
+  }
+}
+
+/* ---------- 연결 ---------- */
+
+function initAccounts() {
+  document.querySelectorAll("[data-open-login]").forEach((button) =>
+    button.addEventListener("click", openLogin)
+  );
+
+  $("login-form").addEventListener("submit", submitLogin);
+  $("login-skip").addEventListener("click", () => {
+    closeDialog("login-dialog", false);
+    modalOpener = null;
+    showPage(1);
+  });
+
+  $("guest-start-button").addEventListener("click", () => openDialog("guest-dialog"));
+  $("guest-continue").addEventListener("click", () => {
+    closeDialog("guest-dialog", false);
+    modalOpener = null;
+    showPage(1);
+  });
+  $("guest-login").addEventListener("click", () => {
+    closeDialog("guest-dialog", false);
+    openLogin();
+  });
+
+  // 닫기(×), Esc, 바깥 클릭
+  document.querySelectorAll("dialog.modal").forEach((dialog) => {
+    dialog.querySelectorAll("[data-close-dialog]").forEach((button) =>
+      button.addEventListener("click", () => closeDialog(dialog.id))
+    );
+    dialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      closeDialog(dialog.id);
+    });
+    dialog.addEventListener("click", (event) => {
+      if (event.target === dialog) closeDialog(dialog.id);
+    });
+  });
+
+  $("logout-button").addEventListener("click", logout);
+  $("sample-result-button").addEventListener("click", showSampleResult);
+  $("delete-all-records").addEventListener("click", deleteAllRecords);
+
+  // 처음 열 때 로그인 상태 확인 (실패하면 비회원으로 계속)
+  accountRequest("GET", "/api/auth/me")
+    .then((data) => setAuth(Boolean(data && data.loggedIn), data && data.username))
+    .catch(() => setAuth(false, null));
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initAccounts);
+} else {
+  initAccounts();
+}

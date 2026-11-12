@@ -20,6 +20,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 로그인 / 분석 기록 API (/api/...) — 기존 /analyze, /roadmap은 그대로 둔다
+from accounts import router as accounts_router  # noqa: E402  (load_dotenv 이후에 불러와야 DATABASE_URL을 읽는다)
+app.include_router(accounts_router)
+
 MODEL = os.getenv("OPENROUTER_MODEL", "openrouter/free")
 
 class AnalyzeRequest(BaseModel):
