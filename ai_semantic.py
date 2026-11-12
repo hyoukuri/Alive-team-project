@@ -6,28 +6,16 @@ import re
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from rubric_v2 import COMPETENCY_NAMES
 
-SYSTEM = """당신은 한국 고등학생 학교생활기록부의 '행동과 의미'를 읽는 평가 보조자입니다.
-입력은 학생부 기록과 후보 학과 목록입니다. 단어 출현 횟수로 평가하지 말고, 학생이 실제로 한 행동의 문제-방법-결과-검증-개선의 연결 관계를 해석합니다.
-원문에 없는 활동, 능력, 결과, 인과관계는 절대 만들지 않습니다.
-특히 '발표'만으로 협업 주도성을, '관심'만으로 지속성을, '계획'만으로 실행을 추정하지 마세요.
-반복 없이 짧은 JSON 객체 하나만 출력하세요. 마크다운 금지.
-
-facts: 4~12개의 독립적으로 의미 있는 행동 근거. 각 항목은 {"source_index":0,"quote":"원문에서 연속으로 복사한 구절","tags":["method","result"],"interpretation":"짧은 해석"}.
-quote는 지정된 source_index의 text 안에서 반드시 글자 그대로 연속된 문자열이어야 함. 원문을 바꾸거나 서로 다른 문장을 합치면 무효.
-tags는 다음 값만 사용: learning, career, question, method, result, validation, revision, collaboration, leadership, reflection, planning, interdisciplinary, comparison, application, continuity, concept.
-단어 자체가 아니라 실제 수행 행동이 근거일 때만 tags 부여. 후속 계획은 실제 실행된 revision이 아님.
-
-competencies: 정확히 5개. {"name":"학업역량","rating":2,"evidence_ids":[0,1],"reason":"짧은 채점 이유"}.
-name 순서: 학업역량, 진로역량, 탐구역량, 공동체역량, 성장가능성.
-rating은 0,1,2,3,4 혹은 null (판단 근거 자체가 부족하면 null).
-0=평가 가능한 기록에서 관련 수행 없음, 1=관심·단순 참여, 2=직접 수행, 3=방법과 결과를 설명하고 근거로 연결, 4=문제 해결·재검증·실질적 개선과 그 효과가 충분히 입증됨.
-4점은 드물게, 기록으로 확증될 때만 사용. 3점도 단순 수식어로 부여 금지.
-evidence_ids는 위 facts 배열의 0부터 시작하는 인덱스. 없으면 []와 null을 사용.
-
-major_links: 제공된 candidate_majors 각각에 대해 {"major":"후보 학과명","evidence_ids":[0,2],"reason":"전공 관련 구체적 이유"}.
-해당 전공과 직접적으로 관련되는 facts만 연결. 전공 명칭을 말한 것만으로 높은 적합도 주장 금지. 각 이유는 짧게.
-전체 스키마: {"facts":[],"competencies":[],"major_links":[]}.
-숫자 총점, 16개 가중 점수, 학과별 장문 평가는 생성하지 마세요.
+SYSTEM = """당신은 한국 고등학생 생활기록부 기록을 읽는 의미 평가자다. 키워드 출현이 아니라 실제 행동과 결과를 판단한다.
+입력 sources에서 원문 구절을 정확히 복사해서 JSON 객체 하나만 반환한다. 설명/코드블록은 금지한다.
+형식: {"facts":[{"source_index":0,"quote":"원문 연속 구절","tags":["method","result"]}],"competencies":[{"name":"학업역량","rating":2,"evidence_ids":[0]}],"major_links":[{"major":"후보 학과명","evidence_ids":[0]}]}
+- facts는 3~7개. quote는 입력 sources[source_index].text에 존재하는 12~180자 원문 그대로. 근거가 없는 항목을 꾸며내지 말 것.
+- tags: learning, career, question, method, result, validation, revision, collaboration, leadership, reflection, planning, interdisciplinary, comparison, application, continuity, concept 중 실제 수행 행동인 것만.
+- competencies는 학업역량, 진로역량, 탐구역량, 공동체역량, 성장가능성 정확히 5개. rating은 0~4 또는 null. evidence_ids는 facts의 0부터 시작하는 번호 배열. 0은 기록에서 수행이 확인되지 않을 때, null은 판단 자료 부족.
+- 1 단순 참여/관심, 2 실제 수행, 3 구체적 방법·결과 연결, 4 충분히 입증된 검증·실질적 개선과 효과. 4점 남발 금지.
+- major_links는 candidate_majors 중 앞의 3개 학과에 대해서만 작성. 관련된 facts의 번호만 인용. 억지로 관련짓지 말 것.
+- 발표=리더십, 관심=지속성, 개선 계획=개선 실행이라고 추정 금지.
+- 짧고 유효한 JSON만 출력. 이유 장문 설명, 반복, 추가 필드 불필요.
 """
 
 def _parse(content):
@@ -48,36 +36,40 @@ def _parse(content):
 
 def request_semantics(sources, candidates, *, call_fn=None):
     # Context bound: enforce per-source length and total text, avoid token blowups.
-    budget = int(os.getenv("SEMANTIC_MAX_CHARS", "9000"))
-    budget = max(1500, min(16000, budget))
+    budget = int(os.getenv("SEMANTIC_MAX_CHARS", "6000"))
+    budget = max(1500, min(12000, budget))
     items = []
     for idx, entry in enumerate(sources):
         if budget <= 0:
             break
-        content = entry["text"][:min(2600,budget)]
+        content = entry["text"][:min(1800,budget)]
         items.append({"source_index":idx,"grade":entry["grade"],"source":entry["source"],"text":content})
         budget -= len(content)
     if not items:
         raise ValueError("AI가 읽을 기록이 없습니다")
-    payload = json.dumps({"sources":items,"candidate_majors":candidates},ensure_ascii=False)
+    payload = json.dumps({"sources":items,"candidate_majors":candidates[:3]},ensure_ascii=False)
     if call_fn is not None:
         return _parse(call_fn(SYSTEM,payload))
     key = os.getenv("OPENROUTER_API_KEY", "").strip()
     if not key:
         raise ValueError("OPENROUTER_API_KEY 미설정")
     from openai import OpenAI
-    timeout = float(os.getenv("SEMANTIC_AI_TIMEOUT", "18"))
-    timeout = max(5.0,min(40.0,timeout))
+    timeout = float(os.getenv("SEMANTIC_AI_TIMEOUT", "35"))
+    timeout = max(5.0,min(60.0,timeout))
     with OpenAI(base_url="https://openrouter.ai/api/v1",api_key=key,timeout=timeout,max_retries=0) as client:
         response = client.chat.completions.create(
             model=os.getenv("OPENROUTER_MODEL","openrouter/free"),
             temperature=0,
-            max_tokens=int(os.getenv("SEMANTIC_MAX_OUTPUT_TOKENS","2400")),
+            max_tokens=int(os.getenv("SEMANTIC_MAX_OUTPUT_TOKENS","3500")),
             messages=[{"role":"system","content":SYSTEM},{"role":"user","content":payload}],
         )
         if not response.choices:
             raise ValueError("AI 응답 선택지가 없습니다")
         message = response.choices[0].message
-        if response.choices[0].finish_reason == "length":
-            raise ValueError("AI 출력 길이 제한에 도달했습니다")
+        finish_reason = response.choices[0].finish_reason
+        if finish_reason == "length":
+            raise ValueError("AI 출력 길이 제한에 도달했습니다 (max_tokens 또는 모델 변경 필요)")
+        if not isinstance(message.content, str) or not message.content.strip():
+            print(f"Semantic AI empty: model={response.model}, finish_reason={finish_reason}, usage={response.usage}")
+            raise ValueError(f"AI가 텍스트를 반환하지 않았습니다 (종료 사유: {finish_reason})")
         return _parse(message.content)
