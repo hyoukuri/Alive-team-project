@@ -41,16 +41,14 @@ class RoadmapRequest(BaseModel):
     analysis: Any = None
     model_config = {"extra": "allow"}
 
-MAJOR_FIT_RUBRIC = {
-    "전공 관련 활동": {"전공 주제 관련성": 10, "활동의 구체성": 10, "활동 간 연계성": 10},
-    "학업 역량": {"전공 기초 교과 역량": 10, "지식의 실제 적용": 10, "학습 태도와 개선": 5},
-    "관심의 지속성": {"관심 주제의 반복·유지": 8, "관심의 발전 과정": 8, "자기주도적 확장": 4},
-    "탐구 심화도": {"탐구 문제 설정": 4, "탐구 방법 설계": 4, "결과 분석 및 검증": 4, "개선 및 후속 탐구": 3},
-    "융합 역량": {"타 분야 지식 활용": 4, "융합적 문제해결": 4, "융합 결과의 타당성": 2},
-}
-INDICATORS = [(category, indicator, weight) for category, group in MAJOR_FIT_RUBRIC.items() for indicator, weight in group.items()]
-COMPETENCY_NAMES = ["학업역량", "진로역량", "탐구역량", "공동체역량", "성장가능성"]
-
+from rubric_v2 import (
+    VERSION as RUBRIC_VERSION,
+    MAJOR_FIT_RUBRIC,
+    INDICATORS,
+    COMPETENCY_NAMES,
+    scoring_guidance,
+    validate_analysis_v2,
+)
 
 def get_client():
     key = os.getenv("OPENROUTER_API_KEY")
@@ -98,95 +96,6 @@ def ask_ai(system_prompt, user_prompt):
         raise HTTPException(status_code=502, detail=f"AI 응답 처리 오류: {type(exc).__name__}") from exc
 
 
-def integer_rating(value):
-    if isinstance(value, bool):
-        raise ValueError("불리언은 평가 등급이 아닙니다.")
-    if isinstance(value, str) and value.strip() in {"0", "1", "2", "3", "4"}:
-        value = int(value.strip())
-    if isinstance(value, float) and value.is_integer():
-        value = int(value)
-    if not isinstance(value, int) or not 0 <= value <= 4:
-        raise ValueError(f"평가 등급은 0~4 정수여야 합니다: {value!r}")
-    return value
-
-
-def calculate_major_fit(ratings):
-    """16개 등급을 검증하고 영역별 가중 점수와 총점을 계산한다."""
-    if isinstance(ratings, list):
-        if len(ratings) != len(INDICATORS):
-            raise ValueError(f"평가 등급이 {len(ratings)}개입니다. 16개가 필요합니다.")
-        values = [integer_rating(v) for v in ratings]
-    elif isinstance(ratings, dict):
-        values = []
-        for category, indicator, _ in INDICATORS:
-            group = ratings.get(category)
-            if not isinstance(group, dict) or indicator not in group:
-                raise ValueError(f"평가 항목 누락: {category} / {indicator}")
-            values.append(integer_rating(group[indicator]))
-    else:
-        raise ValueError("ratings 형식 오류")
-
-    category_scores = {name: 0.0 for name in MAJOR_FIT_RUBRIC}
-    nested_ratings = {name: {} for name in MAJOR_FIT_RUBRIC}
-    for (category, indicator, weight), rating in zip(INDICATORS, values):
-        nested_ratings[category][indicator] = rating
-        category_scores[category] += rating / 4 * weight
-    category_scores = {k: round(v, 2) for k, v in category_scores.items()}
-    return {"ratings": nested_ratings, "category_scores": category_scores,
-            "total_score": round(sum(category_scores.values()), 2)}
-
-
-def normalize_competencies(raw):
-    if not isinstance(raw, list) or len(raw) != 5:
-        raise ValueError("5대 핵심 역량은 정확히 5개여야 합니다.")
-    by_name = {}
-    for item in raw:
-        if not isinstance(item, dict) or item.get("name") not in COMPETENCY_NAMES:
-            raise ValueError("핵심 역량 이름이 올바르지 않습니다.")
-        name = item["name"]
-        if name in by_name:
-            raise ValueError(f"중복 핵심 역량: {name}")
-        rating = integer_rating(item.get("rating", item.get("score")))
-        by_name[name] = {"name": name, "score": rating * 25,
-                         "evidence": str(item.get("evidence") or "기록에서 구체적인 평가 근거가 확인되지 않았습니다.")}
-    if set(by_name) != set(COMPETENCY_NAMES):
-        raise ValueError("필수 핵심 역량이 누락되었습니다.")
-    return [by_name[name] for name in COMPETENCY_NAMES]
-
-
-def validate_analysis(result):
-    recommended = result.get("recommended_majors")
-    fits = result.get("major_fit")
-    if not isinstance(recommended, list) or len(recommended) != 3:
-        raise ValueError("추천 학과가 정확히 3개가 아닙니다.")
-    if not isinstance(fits, list) or len(fits) != 3:
-        raise ValueError("전공 적합성 평가가 정확히 3개가 아닙니다.")
-    names = [item.get("major") for item in recommended if isinstance(item, dict)]
-    if len(names) != 3 or any(not isinstance(n, str) or not n.strip() for n in names) or len(set(names)) != 3:
-        raise ValueError("추천 학과 이름이 올바르지 않습니다.")
-    evaluated = {}
-    for item in fits:
-        if not isinstance(item, dict) or not isinstance(item.get("major"), str):
-            raise ValueError("전공 적합성 학과명 형식 오류")
-        major = item["major"]
-        if major in evaluated:
-            raise ValueError("중복된 전공 적합성 평가")
-        computed = calculate_major_fit(item.get("ratings"))
-        evaluated[major] = {"major": major, **computed,
-                            "evidence": str(item.get("evidence") or ""),
-                            "improvement": str(item.get("improvement") or "")}
-    if set(names) != set(evaluated):
-        raise ValueError("추천 학과와 평가 학과가 일치하지 않습니다.")
-    result["competencies"] = normalize_competencies(result.get("competencies"))
-    result["major_fit"] = [evaluated[name] for name in names]
-    for field in ("strengths", "weaknesses"):
-        if not isinstance(result.get(field), list):
-            result[field] = []
-    if not isinstance(result.get("growth"), (str, list, dict)):
-        result["growth"] = "입력된 학년의 활동을 중심으로 성장 과정을 검토했습니다."
-    return result
-
-
 @app.get("/")
 def home():
     return {"message": "SEEDU:ON AI 서버 실행 중"}
@@ -199,7 +108,7 @@ def health():
 
 # 동일 입력에 대한 분석 결과 임시 저장
 ANALYSIS_CACHE = {}
-ANALYSIS_VERSION = "v1"
+ANALYSIS_VERSION = RUBRIC_VERSION
 
 
 def analysis_cache_key(request):
@@ -220,85 +129,64 @@ def analysis_cache_key(request):
 
 @app.post("/analyze")
 def analyze(request: AnalyzeRequest):
-    rubric_order = [{"index": i + 1, "category": cat, "indicator": indicator, "weight": weight}
-                    for i, (cat, indicator, weight) in enumerate(INDICATORS)]
-    system_prompt = """너는 한국 고등학생의 학교생활기록부를 분석하는 진로 상담 AI다.
-학생이 입력한 기록만 근거로 평가하며 없는 활동·성과를 지어내지 않는다.
-1학년에게 미래 학년 기록 부재로 감점하지 않는다. 같은 학년 내 연계도 평가할 수 있다.
-2~3학년은 실제 기록된 발전 과정만 평가한다.
-반드시 하나의 완전한 JSON 객체만 출력한다. 설명이나 마크다운을 덧붙이지 않는다.
+    if not request.text.strip() and not (isinstance(request.records, dict) and any(str(v or "").strip() for v in request.records.values())):
+        raise HTTPException(status_code=400, detail="학생부 기록을 먼저 입력해 주세요.")
 
-5대 핵심 역량: 학업역량, 진로역량, 탐구역량, 공동체역량, 성장가능성.
-각 역량의 rating은 반드시 0~4 정수다. score 필드는 작성하지 않는다.
-0=근거 없음, 1=관심·단순 참여, 2=활동 확인되나 과정/결과 제한,
-3=구체적 과정과 성취 확인, 4=자기주도적 심화·검증·발전 근거 충분.
-서버가 rating * 25로 100점 환산한다. 근거가 없으면 높게 평가하지 않는다.
-
-서로 다른 학과 3개를 추천하고 학과별 전공 적합성 16개 지표를 평가한다.
-ratings는 아래 순서대로 0~4 정수 16개를 담은 배열로 작성한다.
-전공 적합성은 서버가 각 등급/4*가중치로 계산한다.
-평가 지표 순서와 가중치:\n""" + json.dumps(rubric_order, ensure_ascii=False) + """
-
-출력 구조 (아래 숫자는 형식 예시이며 복사 금지):
-{
-  "competencies": [
-    {"name":"학업역량","rating":3,"evidence":"학생 기록의 구체적인 근거"},
-    {"name":"진로역량","rating":3,"evidence":"근거"},
-    {"name":"탐구역량","rating":3,"evidence":"근거"},
-    {"name":"공동체역량","rating":2,"evidence":"근거"},
-    {"name":"성장가능성","rating":3,"evidence":"근거"}
-  ],
-  "recommended_majors": [
-    {"major":"학과명1","reason":"추천 이유"},
-    {"major":"학과명2","reason":"추천 이유"},
-    {"major":"학과명3","reason":"추천 이유"}
-  ],
-  "major_fit": [
-    {"major":"학과명1","ratings":[3,3,2,3,3,2,3,2,2,3,3,2,2,2,3,2],"evidence":"실제 활동 근거","improvement":"보완 방향"},
-    {"major":"학과명2","ratings":[2,3,2,3,2,2,2,2,2,2,2,2,2,2,2,2],"evidence":"실제 활동 근거","improvement":"보완 방향"},
-    {"major":"학과명3","ratings":[2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2],"evidence":"실제 활동 근거","improvement":"보완 방향"}
-  ],
-  "strengths":["강점1","강점2"],
-  "weaknesses":["보완점1","보완점2"],
-  "growth":"실제 기록에 근거한 학년별 성장 설명"
-}
-필수: competencies 5개, recommended_majors 3개, major_fit 3개,
-각 major_fit의 ratings 정확히 16개, 학과명 일치, 모든 등급 0~4 정수.
-위 예시 학과명과 숫자를 그대로 복사하지 말 것.
-입력된 기록과 관련된 학과별 특성에 맞춰 독립적으로 평가한다.
-공식 대학 합격 가능성 또는 입학 평가 결과라고 표현하지 않는다."""
-    
     cache_key = analysis_cache_key(request)
-
     if cache_key in ANALYSIS_CACHE:
-        print("저장된 AI 분석 결과 재사용")
         return ANALYSIS_CACHE[cache_key]
 
-    user_prompt = json.dumps(
-        request.model_dump(),
-        ensure_ascii=False
+    rubric_order = [
+        {"index": i + 1, "category": cat, "indicator": label, "weight": weight}
+        for i, (cat, label, weight) in enumerate(INDICATORS)
+    ]
+    system_prompt = (
+        "너는 한국 고등학생의 학교생활기록부를 분석하는 진로 상담 AI다. "
+        "학생부 원문에 있는 활동만 근거로 판단하고 없는 활동·성과를 지어내지 않는다. "
+        "학생부의 교과 세특, 자율·자치활동, 동아리활동, 진로활동, 행동특성 및 종합의견을 구분해 읽는다. "
+        "상위 학년 미입력은 감점하지 않는다. 미래 활동은 현재 성취로 간주하지 않는다. "
+        "서로 다른 학과를 정확히 3개 추천한다. 학과 추천은 합격 가능성 예측이 아니다. "
+        "AI는 등급만 판단하고 가중합과 점수는 Python에서 계산한다. "
+        "한 개의 완전한 JSON 객체만 출력한다.\n"
+        + scoring_guidance()
+        + "\n16개 지표 순서: " + json.dumps(rubric_order, ensure_ascii=False)
+        + "\n필수 JSON 구조: "
+        + json.dumps({
+            "competencies": [{"name": name, "rating": 2, "evidence": "해당 활동 설명", "evidence_quote": "원문에 실제 있는 표현"} for name in COMPETENCY_NAMES],
+            "recommended_majors": [{"major": f"서로 다른 학과{i}", "reason": "학생 기록에 근거한 추천 이유", "learning_value": "해당 학과에서 배울 수 있는 내용", "exploration": "후속 탐색 활동"} for i in range(1,4)],
+            "major_fit": [{"major": f"서로 다른 학과{i}", "ratings": [2]*16, "evidence_quotes": ["원문에 실제 있는 표현"]*16, "evidence": "실제 근거 요약", "improvement": "추가로 필요한 활동"} for i in range(1,4)],
+            "strengths": ["근거 있는 강점"], "weaknesses": ["확인이 필요한 부분"],
+            "growth": "학년별 발전 근거에 따른 설명"
+        }, ensure_ascii=False)
+        + "\n위 JSON의 예시 값·학과명·점수를 복사하지 말 것. "
+        "rating=null은 자료가 부족해서 판단 불가능할 때만 사용한다. "
+        "0점은 평가 가능한 자료에서 해당 행동이 확인되지 않는 경우다. "
+        "원문 인용 evidence_quote / evidence_quotes는 사용자의 실제 기록에 존재하는 짧은 연속 구절을 그대로 사용한다. "
+        "0점 또는 null 인용은 빈 문자열로 둔다. 인용 없는 1~4점은 금지한다. "
+        "한 문장만으로 높은 점수를 주지 말고 행동 증거 수준에 따라 보수적으로 평가한다."
     )
-
+    user_prompt = json.dumps(request.model_dump(), ensure_ascii=False)
     last_error = ""
-    for attempt in range(2):
-        prompt = user_prompt if attempt == 0 else user_prompt + (
-            "\n이전 응답은 검증에 실패했습니다: " + last_error +
-            "\n이번에는 필수 키, 학과명 일치, 5개 핵심역량 및 학과별 16개 등급을 정확히 작성하세요."
+    for attempt in range(3):
+        prompt = user_prompt if attempt == 0 else (
+            user_prompt + "\n이전 응답 검증 실패: " + last_error
+            + "\n원문 인용 일치, 정확한 16개 등급/인용, 학과명, 필수 키를 다시 확인해 출력해 주세요."
         )
         try:
-            
-            result = validate_analysis(
-                ask_ai(system_prompt, prompt)
+            result = validate_analysis_v2(
+                ask_ai(system_prompt, prompt), request.records, request.text
             )
-
-            ANALYSIS_CACHE[cache_key] = result
-
+            # 캐시는 같은 프로세스 내 동일 요청 응답을 재사용하므로 실험 시 캐시 비활성화 가능.
+            if os.getenv("DISABLE_ANALYSIS_CACHE", "0") != "1":
+                ANALYSIS_CACHE[cache_key] = result
             return result
-
         except ValueError as exc:
             last_error = str(exc)
-            print(f"AI 분석 검증 실패 ({attempt + 1}/2): {last_error}")
-    raise HTTPException(status_code=502, detail="AI 평가 형식 검증에 실패했습니다. 다시 분석해 주세요. " + last_error)
+            print(f"루브릭 2.0 검증 실패 ({attempt + 1}/3): {last_error}")
+    raise HTTPException(
+        status_code=502,
+        detail="AI 평가 응답을 검증하지 못했습니다. 다시 분석해 주세요. " + last_error,
+    )
 
 
 @app.post("/roadmap")
@@ -325,5 +213,5 @@ JSON 객체 하나만 출력한다. 아래 키와 구조를 지킨다:
   ],
   "advice":"종합 조언"
 }
-탐구활동은 정확히 3개 작성한다. 기존 활동과 연계한다."""
+탐구활동은 정확히 3개 작성한다. 기존 활동과 연계한다.\n로드맵은 목표 설정→실행→점검→성찰→수정의 자기조절학습 과정을 단계별 행동으로 제안한다.\n기록에 없는 성취나 활동은 과거의 실제 경험처럼 표현하지 않는다."""
     return ask_ai(system_prompt, json.dumps(request.model_dump(), ensure_ascii=False))
