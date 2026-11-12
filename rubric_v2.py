@@ -185,3 +185,4 @@ def validate_analysis_v2(result: dict, records: Any, source_text: str) -> dict:
     result["rubric_version"] = VERSION
     result["rubric_research_note"] = "0~4 기준 및 가중치는 SEEDU:ON 자체 설계; 연구는 방법론 참고"
     return result
+
