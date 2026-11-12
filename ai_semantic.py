@@ -1,9 +1,8 @@
-"""SEEDU:ON Rubric 3.0 / OpenRouter free-model semantic extraction.
+"""SEEDU:ON Rubric 3.0 - stable OpenRouter semantic analyzer.
 
-Drop-in replacement for the existing ai_semantic.py.
-Required existing environment variable: OPENROUTER_API_KEY.
-No model-specific parameters or additional Render environment variables.
-Public API: request_semantics(sources, candidates, *, call_fn=None).
+Replace ONLY repository-root ai_semantic.py with this file.
+No extra environment variables. Requires OPENROUTER_API_KEY already configured.
+Keeps request_semantics(sources, candidates, *, call_fn=None) interface.
 """
 from __future__ import annotations
 
@@ -11,194 +10,191 @@ import json
 import logging
 import os
 import re
+import urllib.request
 from typing import Any
 
 from rubric_v2 import COMPETENCY_NAMES
 
-LOGGER = logging.getLogger("seedu.semantic")
-MODEL = "openrouter/free"  # OpenRouter's maintained free-model router
-MAX_OUTPUT_TOKENS = 3500
-TAGS = frozenset(
-    "learning career question method result validation revision collaboration "
-    "leadership reflection planning interdisciplinary comparison application "
-    "continuity concept".split()
+LOGGER = logging.getLogger('seedu.semantic')
+API_BASE = 'https://openrouter.ai/api/v1'
+# Verified from OpenRouter public catalog on 2026-11-13. Availability can change.
+PREFERRED_MODELS = (
+    'google/gemma-4-31b-it:free',
+    'google/gemma-4-26b-a4b-it:free',
 )
+MAX_OUTPUT_TOKENS = 2800
+TAGS = frozenset('learning career question method result validation revision collaboration leadership reflection planning interdisciplinary comparison application continuity concept'.split())
 
-SYSTEM = """너는 한국 고등학생 생활기록부의 실제 수행을 평가하는 근거 추출기다.
-단어 등장으로 점수 주지 말고 문제-방법-결과-검증-실제 개선과 협업의 관계를 파악하라.
-원문에 없는 행동, 결과, 협업, 학습 지속성을 추측하지 마라.
-입력 sources의 text 안에서 12자 이상인 구절을 글자 그대로 인용하라.
-반드시 짧은 JSON 객체 한 개만 반환한다. 마크다운/서술문 금지.
-형식 예시:
-{"f":[[0,"자료를 조사하고 예측값과 실제값을 비교함",["method","comparison"]]],"c":[[2,[0]],[null,[]],[2,[0]],[null,[]],[null,[]]],"m":[[0],[],[]]}
-f: 근거 3~5개. 각 [sources 항목의 i, 원문 인용, 태그 배열]. 인용은 반드시 해당 원문과 일치.
-c: 정확히 5개 [0~4 또는 null, f의 0부터 시작하는 근거 번호 배열]. 순서 학업역량, 진로역량, 탐구역량, 공동체역량, 성장가능성.
-m: candidate_majors 처음 3개에 대한 근거 번호 배열. 관련 없으면 빈 배열.
-태그 허용: learning, career, question, method, result, validation, revision, collaboration, leadership, reflection, planning, interdisciplinary, comparison, application, continuity, concept.
-등급 기준: 1=관심/참여, 2=구체적 수행, 3=방법과 결과가 연결됨, 4=실제 검증과 개선 효과까지 충분히 입증. 근거 없으면 null.
-발표만 했다고 리더십, 개선 계획만 있다고 개선 실천이라고 평가하지 마라.
-설명은 생략하고 JSON만 출력하라."""
+SYSTEM = '''당신은 고등학교 학생부 평가를 위한 한국어 근거 추출기다.
+텍스트 내용에 근거해 수행 행동과 결과를 구별한다. 키워드 반복만으로 점수를 높이지 않는다.
+원문에서 글자 그대로 인용한다. 추론으로 활동 사실을 만들지 않는다.
+JSON 객체 하나만 반환하고 마크다운, 긴 설명, 추가 키를 쓰지 않는다.
+정확한 JSON 모양: {"f":[[0,"원문에서 그대로 복사한 문장",["method","result"]]],"c":[[2,[0]],[null,[]],[2,[0]],[null,[]],[null,[]]],"m":[[0],[],[]]}
+f는 2~4개. 각 항목 [sources의 i, 글자 그대로 인용한 12자 이상 구절, 태그 배열].
+c는 정확히 5개 [0~4 정수 또는 null, f의 근거번호 배열]. 순서는 학업역량, 진로역량, 탐구역량, 공동체역량, 성장가능성.
+m은 candidate_majors 3개에 대한 근거번호 배열. 무관하면 [].
+태그: learning, career, question, method, result, validation, revision, collaboration, leadership, reflection, planning, interdisciplinary, comparison, application, continuity, concept.
+등급: 1=참여/관심, 2=구체적 수행, 3=방법·결과 연결, 4=실질적인 검증·개선까지 근거가 충분함. 정보 없으면 null.
+짧고 유효한 JSON만 출력하라.'''
 
 
 def _payload(sources: list[dict], candidates: list[str]) -> str:
     if not isinstance(sources, list) or not sources:
-        raise ValueError("학생부 기록이 비어 있습니다")
-    # Spread the length allowance across source types, keeping source identifiers.
-    max_total = 4300
-    per_item = max(240, min(1150, max_total // len(sources)))
+        raise ValueError('학생부 기록이 비어 있습니다')
+    budget = 3100
+    per_item = max(200, min(820, budget // len(sources)))
     items = []
-    remaining = max_total
     for i, source in enumerate(sources):
-        if remaining <= 0:
+        if budget <= 0:
             break
-        excerpt = str(source.get("text") or "").strip()[:min(per_item, remaining)]
+        excerpt = str(source.get('text') or '').strip()[:min(per_item, budget)]
         if excerpt:
-            items.append({
-                "i": i,
-                "source": str(source.get("source") or "")[:50],
-                "grade": source.get("grade", 1),
-                "text": excerpt,
-            })
-            remaining -= len(excerpt)
+            items.append({'i': i, 'source': str(source.get('source') or '')[:45],
+                          'grade': source.get('grade', 1), 'text': excerpt})
+            budget -= len(excerpt)
     if not items:
-        raise ValueError("학생부에서 분석할 문장을 찾을 수 없습니다")
-    return json.dumps({"sources": items, "candidate_majors": candidates[:3]},
-                      ensure_ascii=False, separators=(",", ":"))
+        raise ValueError('학생부에서 분석할 문장을 찾을 수 없습니다')
+    return json.dumps({'sources': items, 'candidate_majors': list(candidates[:3])},
+                      ensure_ascii=False, separators=(',', ':'))
 
 
 def _parse(content: str) -> dict[str, Any]:
     if not isinstance(content, str) or not content.strip():
-        raise ValueError("AI 텍스트 응답이 비어 있습니다")
-    value = content.strip().lstrip("\ufeff")
-    value = re.sub(r"^```(?:json)?\s*", "", value, flags=re.I)
-    value = re.sub(r"\s*```$", "", value)
-    first, last = value.find("{"), value.rfind("}")
-    if first < 0 or last < first:
-        raise ValueError("AI 응답에서 JSON 객체를 찾지 못했습니다")
+        raise ValueError('AI의 텍스트 출력이 비어 있습니다')
+    raw = content.strip().lstrip('\ufeff')
+    raw = re.sub(r'^```(?:json)?\s*', '', raw, flags=re.I)
+    raw = re.sub(r'\s*```$', '', raw)
+    start, end = raw.find('{'), raw.rfind('}')
+    if start < 0 or end < start:
+        raise ValueError('AI JSON 객체가 없습니다')
     try:
-        obj = json.loads(value[first:last + 1])
+        obj = json.loads(raw[start:end + 1])
     except json.JSONDecodeError as exc:
-        # Deliberately avoid guessing punctuation or fabricating a valid grade.
-        raise ValueError(f"AI JSON 형식 오류 ({exc.msg}, 위치 {exc.pos})") from exc
-    if not isinstance(obj, dict):
-        raise ValueError("AI의 평가 형식이 JSON 객체가 아닙니다")
-    if not isinstance(obj.get("f"), list) or not isinstance(obj.get("c"), list):
-        raise ValueError("AI 응답에서 근거 또는 역량 항목이 누락되었습니다")
-    if len(obj["c"]) != 5 or not obj["f"]:
-        raise ValueError("AI 응답의 필수 5대 역량 또는 근거가 미완성입니다")
+        raise ValueError(f'AI JSON 문법 오류: {exc.msg} (위치 {exc.pos})') from exc
+    if not isinstance(obj, dict) or not isinstance(obj.get('f'), list) or not isinstance(obj.get('c'), list):
+        raise ValueError('AI JSON 필수 항목 f/c가 없습니다')
+    if len(obj['c']) != 5 or not obj['f']:
+        raise ValueError('AI JSON의 5대 역량 또는 근거가 비어 있습니다')
     return obj
 
 
 def _normalize(parsed: dict[str, Any], candidates: list[str]) -> dict[str, Any]:
-    """Preserve the exact dict contract expected by semantic_engine.build_analysis."""
-    # Older valid verbose output remains supported for unit-test callers.
-    if isinstance(parsed.get("facts"), list) and isinstance(parsed.get("competencies"), list):
+    if isinstance(parsed.get('facts'), list) and isinstance(parsed.get('competencies'), list):
         return parsed
-
     facts = []
-    for fact in parsed.get("f", [])[:12]:
-        if (not isinstance(fact, list) or len(fact) < 3 or
-                type(fact[0]) is not int or not isinstance(fact[1], str) or
-                not isinstance(fact[2], list)):
-            # Placeholder retains IDs without accidentally shifting references.
-            facts.append({"source_index": -1, "quote": "", "tags": []})
+    for item in parsed.get('f', [])[:12]:
+        if (not isinstance(item, list) or len(item) < 3 or type(item[0]) is not int
+                or not isinstance(item[1], str) or not isinstance(item[2], list)):
+            facts.append({'source_index': -1, 'quote': '', 'tags': []})
             continue
-        facts.append({
-            "source_index": fact[0],
-            "quote": fact[1],
-            "tags": [t for t in fact[2] if isinstance(t, str) and t in TAGS],
-        })
-
+        facts.append({'source_index': item[0], 'quote': item[1],
+                      'tags': [x for x in item[2] if isinstance(x, str) and x in TAGS]})
     competencies = []
-    for idx, name in enumerate(COMPETENCY_NAMES):
-        row = parsed["c"][idx]
-        score = row[0] if isinstance(row, list) and row else None
-        indices = row[1] if isinstance(row, list) and len(row) > 1 else []
-        if type(score) is not int or score < 0 or score > 4:
-            score = None
-        if not isinstance(indices, list):
-            indices = []
-        indices = [i for i in indices if type(i) is int and 0 <= i < len(facts)]
-        competencies.append({"name": name, "rating": score, "evidence_ids": indices})
-
-    major_rows = parsed.get("m") if isinstance(parsed.get("m"), list) else []
+    for i, name in enumerate(COMPETENCY_NAMES):
+        row = parsed['c'][i]
+        rating = row[0] if isinstance(row, list) and row else None
+        refs = row[1] if isinstance(row, list) and len(row) > 1 else []
+        if type(rating) is not int or not 0 <= rating <= 4:
+            rating = None
+        if not isinstance(refs, list):
+            refs = []
+        competencies.append({'name': name, 'rating': rating,
+                             'evidence_ids': [k for k in refs if type(k) is int and 0 <= k < len(facts)]})
+    raw_major_links = parsed.get('m') if isinstance(parsed.get('m'), list) else []
     links = []
-    for idx, major in enumerate(candidates[:3]):
-        indices = major_rows[idx] if idx < len(major_rows) else []
-        if not isinstance(indices, list):
-            indices = []
-        links.append({
-            "major": major,
-            "evidence_ids": [i for i in indices if type(i) is int and 0 <= i < len(facts)],
-        })
-    return {"facts": facts, "competencies": competencies, "major_links": links}
+    for i, major in enumerate(candidates[:3]):
+        refs = raw_major_links[i] if i < len(raw_major_links) else []
+        if not isinstance(refs, list):
+            refs = []
+        links.append({'major': major,
+                      'evidence_ids': [k for k in refs if type(k) is int and 0 <= k < len(facts)]})
+    return {'facts': facts, 'competencies': competencies, 'major_links': links}
 
 
 def _response_text(response: Any) -> str:
-    choices = getattr(response, "choices", None) or []
+    choices = getattr(response, 'choices', None) or []
     if not choices:
-        raise ValueError("AI 응답에 choices가 없습니다")
+        raise ValueError('AI 선택 응답이 없습니다')
     choice = choices[0]
-    if getattr(choice, "finish_reason", None) == "length":
-        usage = getattr(response, "usage", None)
-        LOGGER.warning("SEEDU semantic length: model=%s usage=%s",
-                       getattr(response, "model", "unknown"), usage)
-        raise ValueError("AI 응답의 출력 길이가 제한에 도달했습니다")
-    text = getattr(getattr(choice, "message", None), "content", None)
-    if not isinstance(text, str) or not text.strip():
-        raise ValueError("AI가 분석 텍스트를 반환하지 않았습니다")
-    return text
+    if getattr(choice, 'finish_reason', None) == 'length':
+        usage = getattr(response, 'usage', None)
+        # Do not log private student records.
+        LOGGER.warning('SEEDU semantic length: model=%s usage=%s', getattr(response, 'model', '?'), usage)
+        raise ValueError('AI 응답의 출력 길이가 제한에 도달했습니다')
+    body = getattr(getattr(choice, 'message', None), 'content', None)
+    if not isinstance(body, str) or not body.strip():
+        raise ValueError('AI가 응답 본문을 반환하지 않았습니다')
+    return body
+
+
+def _discover_models() -> list[str]:
+    """Ask public OpenRouter catalog for currently listed free text models.
+
+    Never route to random free models; exclude mandatory reasoning when advertised.
+    Discovery failure falls back to recently verified model IDs, which may also expire.
+    """
+    req = urllib.request.Request(API_BASE + '/models', headers={'Accept': 'application/json', 'User-Agent': 'SEEDU-ON/3.0'})
+    try:
+        with urllib.request.urlopen(req, timeout=7) as r:
+            entries = json.load(r).get('data', [])
+    except Exception as exc:
+        LOGGER.warning('SEEDU model catalog unavailable: %s', type(exc).__name__)
+        return list(PREFERRED_MODELS)
+    available = {}
+    for m in entries:
+        if not isinstance(m, dict):
+            continue
+        ident = m.get('id')
+        if not isinstance(ident, str) or not ident.endswith(':free'):
+            continue
+        output_mods = (m.get('architecture') or {}).get('output_modalities') or ['text']
+        if 'text' not in output_mods:
+            continue
+        reasoning = m.get('reasoning') or {}
+        if isinstance(reasoning, dict) and reasoning.get('mandatory') is True:
+            continue
+        available[ident] = m
+    # Explicitly prioritize instruction-following models with familiar Korean support.
+    preferred = [x for x in PREFERRED_MODELS if x in available]
+    rest = [x for x in available if x not in preferred and any(y in x for y in ('gemma', 'instruct', 'chat'))]
+    return (preferred + sorted(rest))[:5] or list(PREFERRED_MODELS)
 
 
 def request_semantics(sources, candidates, *, call_fn=None):
-    """Return {facts, competencies, major_links} for Rubric 3.0.
-
-    call_fn(system, payload) is retained for offline tests.
-    """
+    """Return compact evidence and ratings for semantic_engine.build_analysis."""
     payload = _payload(sources, candidates)
     if call_fn is not None:
         return _normalize(_parse(call_fn(SYSTEM, payload)), candidates)
-
-    key = os.getenv("OPENROUTER_API_KEY", "").strip()
+    key = os.getenv('OPENROUTER_API_KEY', '').strip()
     if not key:
-        raise ValueError("Render의 OPENROUTER_API_KEY가 설정되지 않았습니다")
-
+        raise ValueError('OPENROUTER_API_KEY가 없습니다')
     from openai import OpenAI
-    messages = [{"role": "system", "content": SYSTEM},
-                {"role": "user", "content": payload}]
+    messages = [{'role': 'system', 'content': SYSTEM}, {'role': 'user', 'content': payload}]
     errors = []
-
-    # Try JSON mode first. OpenRouter free router filters for suitable providers;
-    # if JSON mode is unsupported or the JSON itself is broken, retry once with
-    # plain text instructions. Never force reasoning.enabled=false/effort=none.
-    with OpenAI(base_url="https://openrouter.ai/api/v1", api_key=key,
-                timeout=45.0, max_retries=0) as client:
-        for attempt in range(2):
-            kwargs = {
-                "model": MODEL,
-                "messages": messages,
-                "max_tokens": MAX_OUTPUT_TOKENS,
-            }
-            if attempt == 0:
-                kwargs["response_format"] = {"type": "json_object"}
+    models = _discover_models()
+    with OpenAI(base_url=API_BASE, api_key=key, timeout=45.0, max_retries=0) as client:
+        for model in models[:3]:
+            # These Gemma instruction models expose configurable reasoning; avoid spending
+            # all completion tokens on unbounded thinking. If provider rejects this
+            # optional setting, retry without it once using the NEXT model.
+            kwargs = {'model': model, 'messages': messages,
+                      'max_tokens': MAX_OUTPUT_TOKENS,
+                      'temperature': 0.1}
+            if model.startswith('google/gemma-4-'):
+                kwargs['extra_body'] = {'reasoning': {'effort': 'none'}}
             try:
                 response = client.chat.completions.create(**kwargs)
-                parsed = _parse(_response_text(response))
-                normalized = _normalize(parsed, candidates)
-                if not any(f["quote"] and f["tags"] for f in normalized["facts"]):
-                    raise ValueError("AI가 유효한 인용 근거를 반환하지 않았습니다")
-                LOGGER.info("SEEDU semantic success: model=%s facts=%s",
-                            getattr(response, "model", MODEL), len(normalized["facts"]))
-                return normalized
+                result = _normalize(_parse(_response_text(response)), candidates)
+                if not any(f['quote'] and f['tags'] for f in result['facts']):
+                    raise ValueError('인용 근거가 없습니다')
+                LOGGER.info('SEEDU semantic success: model=%s facts=%d',
+                            getattr(response, 'model', model), len(result['facts']))
+                return result
             except Exception as exc:
-                # Don't expose input student records or API keys in logs.
-                kind = type(exc).__name__
-                status = getattr(exc, "status_code", None)
-                LOGGER.warning("SEEDU semantic attempt failed: attempt=%s model=%s "
-                               "type=%s status=%s error=%s",
-                               attempt + 1, MODEL, kind, status, str(exc)[:160])
-                errors.append(f"{kind}(HTTP {status})" if status else kind)
-                # No point retrying invalid credentials or exhausted quota.
+                status = getattr(exc, 'status_code', None)
+                LOGGER.warning('SEEDU semantic attempt failed: model=%s type=%s status=%s error=%s',
+                               model, type(exc).__name__, status, str(exc)[:170])
+                errors.append(f'{model}: {type(exc).__name__}')
                 if status in (401, 402, 403, 429):
                     break
-    raise ValueError("OpenRouter 무료 라우터 응답 실패: " + ", ".join(errors))
+    raise ValueError('OpenRouter 의미 분석 실패 (모델을 바꿔 재시도함): ' + '; '.join(errors))
