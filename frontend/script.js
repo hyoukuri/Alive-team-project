@@ -1252,49 +1252,113 @@ if (document.readyState === "loading") {
     ]
   };
 
-  // 과목별 세특 보관
-  const registeredRecords = {
-    1: {},
-    2: {},
-    3: {}
+ 
+  // ========================================
+  // SEEDU:ON 학생부 영역별 기록 등록
+  // ========================================
+
+  const CATEGORY_NAMES = {
+    subject: "교과 세특",
+    autonomy: "자율·자치활동",
+    club: "동아리활동",
+    career: "진로활동",
+    behavior: "행동특성 및 종합의견"
   };
 
-  let editingSubject = null;
+  const registeredActivities = {
+    1: [],
+    2: [],
+    3: []
+  };
+
+  let editingId = null;
 
   function initSubjectInput() {
+    const categorySelect =
+      document.getElementById("record-category");
     const subjectSelect =
       document.getElementById("subject-select");
-
+    const subjectField =
+      document.getElementById("subject-field");
+    const activityField =
+      document.getElementById("activity-field");
+    const activityTitle =
+      document.getElementById("activity-title");
     const subjectRecord =
       document.getElementById("subject-record");
-
+    const contentLabel =
+      document.getElementById("record-content-label");
     const addButton =
       document.getElementById("add-subject-button");
-
     const registeredBox =
       document.getElementById("registered-subjects");
-
     const hiddenRecord =
       document.getElementById("student-record");
-
     const characterCount =
       document.getElementById("character-count");
-
     const currentGradeSelect =
       document.getElementById("current-grade");
+    const analyzeButton =
+      document.getElementById("analyze-button");
 
-    if (
-      !subjectSelect ||
-      !subjectRecord ||
-      !addButton ||
-      !registeredBox ||
-      !hiddenRecord
-    ) {
-      console.error("과목 입력 HTML 요소를 찾을 수 없습니다.");
+    const required = [
+      categorySelect,
+      subjectSelect,
+      subjectField,
+      activityField,
+      activityTitle,
+      subjectRecord,
+      contentLabel,
+      addButton,
+      registeredBox,
+      hiddenRecord,
+      characterCount,
+      currentGradeSelect,
+      analyzeButton
+    ];
+
+    if (required.some(element => !element)) {
+      console.error("학생부 입력 HTML 요소가 없습니다.");
       return;
     }
 
-    // 학년별 선택 과목 표시
+    function createId() {
+      if (
+        typeof crypto !== "undefined" &&
+        typeof crypto.randomUUID === "function"
+      ) {
+        return crypto.randomUUID();
+      }
+
+      return Date.now().toString(36) + "-" +
+        Math.random().toString(36).slice(2);
+    }
+
+    function resetForm() {
+      editingId = null;
+      subjectSelect.value = "";
+      activityTitle.value = "";
+      subjectRecord.value = "";
+      addButton.textContent = "+ 기록 등록하기";
+    }
+
+    function updateCategoryUI() {
+      const category = categorySelect.value;
+      const isSubject = category === "subject";
+      const isBehavior = category === "behavior";
+
+      subjectField.hidden = !isSubject;
+      activityField.hidden = isSubject || isBehavior;
+
+      contentLabel.textContent = isSubject
+        ? "세부능력 및 특기사항"
+        : "학생부 활동 기록 내용";
+
+      subjectRecord.placeholder = isSubject
+        ? "선택한 과목의 세특 내용을 입력하세요."
+        : "학생부에 기재된 활동 내용을 입력하세요.";
+    }
+
     function updateSubjectOptions() {
       const grade = activeGrade;
 
@@ -1305,49 +1369,48 @@ if (document.readyState === "loading") {
       placeholder.textContent = "과목을 선택하세요";
       subjectSelect.append(placeholder);
 
-      SUBJECT_LIST[grade].forEach((name) => {
+      (SUBJECT_LIST[grade] || []).forEach(name => {
         const option = document.createElement("option");
-
         option.value = name;
         option.textContent = name;
-
         subjectSelect.append(option);
       });
 
-      subjectSelect.value = "";
-      subjectRecord.value = "";
-      editingSubject = null;
-      addButton.textContent = "+ 과목 등록하기";
-
-      renderRegisteredSubjects();
+      resetForm();
+      updateCategoryUI();
+      renderRegisteredActivities();
       syncRecords();
     }
 
-    // 등록 과목을 기존 분석용 텍스트로 변환
-    function createGradeText(grade) {
-      return Object.entries(registeredRecords[grade])
-        .map(([name, content]) => {
-          return `[과목: ${name}]\n${content}`;
+    function makeGradeText(grade) {
+      return registeredActivities[grade]
+        .map(item => {
+          const label = CATEGORY_NAMES[item.category];
+
+          const heading = item.category === "subject"
+            ? `[과목: ${item.title}]`
+            : `[${label}: ${item.title}]`;
+
+          return `${heading}\n${item.content}`;
         })
         .join("\n\n");
     }
 
-    // 기존 백엔드와 호환
+    // 기존 분석 API와 데이터 형식 호환
     function syncRecords() {
       for (let grade = 1; grade <= 3; grade++) {
-        studentRecords[grade] = createGradeText(grade);
+        studentRecords[grade] = makeGradeText(grade);
       }
 
       hiddenRecord.value = studentRecords[activeGrade];
 
       const currentGrade = Number(currentGradeSelect.value);
 
-      const total = [1, 2, 3]
-        .filter((grade) => grade <= currentGrade)
-        .reduce(
-          (sum, grade) => sum + studentRecords[grade].length,
-          0
-        );
+      let total = 0;
+
+      for (let grade = 1; grade <= currentGrade; grade++) {
+        total += studentRecords[grade].length;
+      }
 
       characterCount.textContent =
         `${activeGrade}학년: ` +
@@ -1355,49 +1418,63 @@ if (document.readyState === "loading") {
         ` / 전체: ${total.toLocaleString()}자`;
     }
 
-    // 등록 과목 목록 표시
-    function renderRegisteredSubjects() {
+    // 등록된 학생부 기록 출력
+    function renderRegisteredActivities() {
       registeredBox.replaceChildren();
 
-      const records = registeredRecords[activeGrade];
-      const entries = Object.entries(records);
+      const records = registeredActivities[activeGrade];
 
-      if (entries.length === 0) {
+      if (records.length === 0) {
         const empty = document.createElement("p");
-        empty.textContent = "아직 등록한 과목이 없습니다.";
+        empty.textContent = "아직 등록한 기록이 없습니다.";
         registeredBox.append(empty);
         return;
       }
 
-      entries.forEach(([name, content]) => {
-        const item = document.createElement("div");
-        item.className = "registered-subject-item";
+      records.forEach(item => {
+        const row = document.createElement("div");
+        row.className = "registered-subject-item";
 
         const info = document.createElement("div");
         info.className = "registered-subject-info";
 
         const title = document.createElement("strong");
-        title.textContent = name;
+        title.textContent =
+          `${CATEGORY_NAMES[item.category]} · ${item.title}`;
 
         const detail = document.createElement("p");
-        detail.textContent = `${content.length}자 등록됨`;
+        detail.textContent =
+          `${item.content.length}자 등록됨`;
 
         info.append(title, detail);
 
-        const buttons = document.createElement("div");
-        buttons.className = "registered-subject-actions";
+        const actions = document.createElement("div");
+        actions.className = "registered-subject-actions";
 
-        // 수정 버튼
-        const editButton = document.createElement("button");
-        editButton.type = "button";
-        editButton.textContent = "수정";
-        editButton.className = "subject-edit-button";
+        // 수정
+        const edit = document.createElement("button");
+        edit.type = "button";
+        edit.className = "subject-edit-button";
+        edit.textContent = "수정";
 
-        editButton.addEventListener("click", () => {
-          subjectSelect.value = name;
-          subjectRecord.value = content;
-          editingSubject = name;
+        edit.addEventListener("click", () => {
+          editingId = item.id;
+          categorySelect.value = item.category;
 
+          updateCategoryUI();
+
+          subjectSelect.value =
+            item.category === "subject"
+              ? item.title
+              : "";
+
+          activityTitle.value =
+            item.category === "subject" ||
+            item.category === "behavior"
+              ? ""
+              : item.title;
+
+          subjectRecord.value = item.content;
           addButton.textContent = "변경 내용 저장하기";
 
           subjectRecord.focus();
@@ -1407,129 +1484,157 @@ if (document.readyState === "loading") {
           });
         });
 
-        // 삭제 버튼
-        const deleteButton = document.createElement("button");
-        deleteButton.type = "button";
-        deleteButton.textContent = "삭제";
-        deleteButton.className = "subject-delete-button";
+        // 삭제
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "subject-delete-button";
+        remove.textContent = "삭제";
 
-        deleteButton.addEventListener("click", () => {
-          if (!confirm(`${name} 과목의 세특을 삭제할까요?`)) {
+        remove.addEventListener("click", () => {
+          if (!confirm(
+            `${item.title} 기록을 삭제할까요?`
+          )) {
             return;
           }
 
-          delete registeredRecords[activeGrade][name];
+          registeredActivities[activeGrade] =
+            registeredActivities[activeGrade].filter(
+              record => record.id !== item.id
+            );
 
-          if (subjectSelect.value === name) {
-            subjectSelect.value = "";
-            subjectRecord.value = "";
-            editingSubject = null;
-            addButton.textContent = "+ 과목 등록하기";
+          if (editingId === item.id) {
+            resetForm();
           }
 
-          renderRegisteredSubjects();
+          renderRegisteredActivities();
           syncRecords();
         });
 
-        buttons.append(editButton, deleteButton);
-        item.append(info, buttons);
-
-        registeredBox.append(item);
+        actions.append(edit, remove);
+        row.append(info, actions);
+        registeredBox.append(row);
       });
     }
 
-    // 과목 등록 및 수정
+    // 학생부 영역 변경
+    categorySelect.addEventListener("change", () => {
+      resetForm();
+      updateCategoryUI();
+    });
+
+    // 과목 선택 변경 중 수정 상태 해제
+    subjectSelect.addEventListener("change", () => {
+      if (editingId !== null) {
+        const existing = registeredActivities[activeGrade]
+          .find(item => item.id === editingId);
+
+        if (
+          existing &&
+          existing.category === "subject" &&
+          existing.title !== subjectSelect.value
+        ) {
+          editingId = null;
+          addButton.textContent = "+ 기록 등록하기";
+        }
+      }
+    });
+
+    // 학생부 기록 등록 및 수정
     addButton.addEventListener("click", () => {
-      const name = subjectSelect.value;
+      const category = categorySelect.value;
       const content = subjectRecord.value.trim();
 
-      if (!name) {
-        alert("과목을 먼저 선택해 주세요.");
+      const title = category === "subject"
+        ? subjectSelect.value
+        : category === "behavior"
+          ? "행동특성 및 종합의견"
+          : activityTitle.value.trim() ||
+            CATEGORY_NAMES[category];
+
+      if (!title || !content) {
+        alert("활동 유형과 기록 내용을 입력해 주세요.");
         return;
       }
 
-      if (!content) {
-        alert("세특 내용을 입력해 주세요.");
+      const records = registeredActivities[activeGrade];
+
+      // 동일 학년의 동일 과목 중복 방지
+      const duplicate = records.find(item =>
+        item.category === "subject" &&
+        category === "subject" &&
+        item.title === title &&
+        item.id !== editingId
+      );
+
+      if (duplicate) {
+        alert(
+          "이미 등록한 과목입니다. 수정 버튼을 이용하세요."
+        );
         return;
       }
 
-      const records = registeredRecords[activeGrade];
+      if (editingId !== null) {
+        const existing = records.find(
+          item => item.id === editingId
+        );
 
-      // 수정 과정에서 과목이 변경된 경우
-      if (editingSubject && editingSubject !== name) {
-        if (records[name] !== undefined) {
-          alert("이미 등록된 과목입니다.");
+        if (!existing) {
+          alert("수정할 기록을 찾을 수 없습니다.");
+          resetForm();
           return;
         }
-        delete records[editingSubject];
+
+        existing.category = category;
+        existing.title = title;
+        existing.content = content;
+      } else {
+        records.push({
+          id: createId(),
+          category,
+          title,
+          content
+        });
       }
 
-      if (
-        !editingSubject &&
-        records[name] !== undefined &&
-        !confirm("이미 등록된 과목입니다. 내용을 덮어쓸까요?")
-      ) {
-        return;
-      }
-
-      records[name] = content;
-
-      editingSubject = null;
-      subjectSelect.value = "";
-      subjectRecord.value = "";
-
-      addButton.textContent = "+ 과목 등록하기";
-
-      renderRegisteredSubjects();
+      resetForm();
+      renderRegisteredActivities();
       syncRecords();
     });
 
-    // 선택한 과목의 세특을 수정할 때
-    subjectSelect.addEventListener("change", () => {
-      if (editingSubject && subjectSelect.value !== editingSubject) {
-        editingSubject = null;
-        addButton.textContent = "+ 과목 등록하기";
-      }
+    // 기존 학년 전환 기능과 연동
+    document.querySelectorAll(".grade-tab").forEach(tab => {
+      tab.addEventListener("click", updateSubjectOptions);
     });
 
-    // 학년 탭 변경 후 과목 목록 갱신
-    document.querySelectorAll(".grade-tab").forEach((tab) => {
-      tab.addEventListener("click", () => {
-        updateSubjectOptions();
-      });
-    });
+    currentGradeSelect.addEventListener(
+      "change",
+      updateSubjectOptions
+    );
 
-    // 현재 학년 변경
-    currentGradeSelect.addEventListener("change", () => {
-      updateSubjectOptions();
-    });
-
-    // 분석 직전 입력 데이터 동기화
-    const analyzeButton =
-      document.getElementById("analyze-button");
-
+    // AI 분석 직전 등록 여부 검사
     analyzeButton.addEventListener(
       "click",
-      (event) => {
+      event => {
         syncRecords();
 
-        const hasAnyRecords = [1, 2, 3].some(
-          (grade) =>
-            grade <= Number(currentGradeSelect.value) &&
-            Object.keys(registeredRecords[grade]).length > 0
+        const current =
+          Number(currentGradeSelect.value);
+
+        const hasRecords = [1, 2, 3].some(grade =>
+          grade <= current &&
+          registeredActivities[grade].length > 0
         );
 
-        if (!hasAnyRecords) {
+        if (!hasRecords) {
           event.stopImmediatePropagation();
-          alert("과목과 세특을 먼저 등록해 주세요.");
+          alert("학생부 기록을 먼저 등록해 주세요.");
           return;
         }
 
         if (subjectRecord.value.trim()) {
           event.stopImmediatePropagation();
           alert(
-            "작성 중인 세특이 있습니다. " +
-            "'과목 등록하기'를 먼저 눌러 주세요."
+            "작성 중인 내용을 먼저 등록해 주세요."
           );
         }
       },
@@ -1538,7 +1643,9 @@ if (document.readyState === "loading") {
 
     updateSubjectOptions();
 
-    console.log("SEEDU:ON 과목 선택 기능 초기화 완료");
+    console.log(
+      "SEEDU:ON 학생부 영역별 입력 기능 초기화 완료"
+    );
   }
 
   if (document.readyState === "loading") {
