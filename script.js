@@ -119,7 +119,7 @@ function radarChart(items) {
     "aria-label",
     "5대 역량 레이더 차트. " +
       items
-        .map((item) => `${item.name} ${Math.round(item.score)}점`)
+        .map((item) => `${item.name} ${item.score === null ? "근거 부족" : Math.round(item.score) + "점"}`)
         .join(", ") +
       " (100점 만점)"
   );
@@ -144,7 +144,7 @@ function radarChart(items) {
 
     items.forEach((item, i) => {
       const scoreScale = useScore
-        ? Number(item.score) / 100
+        ? Number(item.score ?? 0) / 100
         : 1;
 
       const [x, y] = point(
@@ -247,7 +247,7 @@ function renderDashboard(data) {
 
     heading.append(el("strong", "", item.name));
     heading.append(
-      el("span", "score-number", `${Math.round(item.score)} / 100`)
+      el("span", "score-number", item.score === null ? "근거 부족" : `${Math.round(item.score)} / 100`)
     );
 
     box.append(heading);
@@ -256,7 +256,7 @@ function renderDashboard(data) {
     const fill = el("div", "bar-fill");
 
     fill.style.width =
-      `${Math.max(0, Math.min(100, item.score))}%`;
+      `${Math.max(0, Math.min(100, item.score ?? 0))}%`;
 
     track.append(fill);
 
@@ -313,7 +313,7 @@ function renderDashboard(data) {
         "major-rank",
         hasScore
           ? `${i + 1}위 · ${fitLevel(item.fit)}`
-          : `${i + 1}위 · 평가 점수 없음`
+          : `${i + 1}위 · 평가 근거 부족`
       ),
       el("h3", "major-name", item.name),
       el("p", "evidence", item.reason)
@@ -471,7 +471,7 @@ function normalizeCompetencies(raw) {
 
       return {
         name: asText(item.name ?? item.label, name),
-        score: toScore(item.score ?? item.value),
+        score: (item.score === null && item.status === "insufficient_evidence") ? null : toScore(item.score ?? item.value),
         evidence: asText(
           item.evidence ?? item.reason ?? item.description,
           "세특에서 확인된 활동을 바탕으로 평가했습니다."
