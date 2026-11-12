@@ -220,7 +220,7 @@ function renderDashboard(data) {
 
   const title = el("div", "result-intro");
   title.append(
-    el("p", "eyebrow", "SEEDU:ON · AI ANALYSIS")
+    el("p", "eyebrow", data.aiReview?.used ? "SEEDU:ON · HYBRID ANALYSIS" : "SEEDU:ON · RULE-BASED ANALYSIS")
   );
   title.append(
     el("h2", "result-title", "나의 역량 분석 리포트")
@@ -229,7 +229,7 @@ function renderDashboard(data) {
     el(
       "p",
       "muted",
-      "입력한 세특을 바탕으로 생성한 참고용 분석입니다."
+      data.aiReview?.used ? "Python 루브릭을 기준으로 채점하고, AI는 근거가 확인된 학과 설명만 보완했습니다. 근거 부족 항목은 평가하지 않습니다." : "Python 루브릭으로 분석한 참고용 결과입니다. AI 검토가 생략되거나 실패해도 기본 분석은 제공됩니다. 근거 부족 항목은 평가하지 않습니다."
     )
   );
 
@@ -311,21 +311,25 @@ function renderDashboard(data) {
       el(
         "p",
         "major-rank",
-        hasScore
-          ? `${i + 1}위 · ${fitLevel(item.fit)}`
-          : `${i + 1}위 · 평가 근거 부족`
+        item.scoreStatus === "insufficient_evidence"
+          ? `${i + 1}위 · 관련 근거 기반 추천 (평가 보류)`
+          : hasScore
+            ? `${i + 1}위 · ${fitLevel(item.fit)}`
+            : `${i + 1}위 · 평가 근거 부족`
       ),
       el("h3", "major-name", item.name),
       el("p", "evidence", item.reason)
     );
 
-    if (hasScore) {
-      // 세부 점수는 접어 두고, 펼치면 볼 수 있게 한다
+    if (hasScore || item.partialScore !== null) {
+      // 근거 부족 항목은 종합 적합도로 단정하지 않는다.
       const details = el("details", "major-fit-details");
 
       details.append(
         el("summary", "", "세부 평가 보기"),
-        el("p", "evidence", `종합 평가 ${item.fit.toFixed(1)} / 100`)
+        el("p", "evidence", hasScore
+          ? `종합 평가 ${item.fit.toFixed(1)} / 100`
+          : `확인된 지표의 점수 합 ${item.partialScore.toFixed(1)}점 (전체 배점 100점 중 ${item.coverageWeight}점 분량만 평가 가능; 종합 적합도 평가 보류)`)
       );
 
       Object.entries(categoryMax).forEach(
@@ -384,7 +388,7 @@ function renderDashboard(data) {
     el(
       "p",
       "disclaimer",
-      "※ 전공 적합성은 학생부 기록에 근거한 자체 평가 지표이며, 대학 합격 확률이나 공식 입학 평가 점수가 아닙니다."
+      "※ Python 규칙 기반 관련성 추천이며 일부 사례에서만 AI가 설명을 보완합니다. 객관적 적성 검사나 대학 공식 평가가 아니며, 미평가 지표가 있으면 종합점수를 보류합니다."
     )
   );
 
@@ -545,6 +549,9 @@ function normalizeMajors(raw) {
       name,
       reason,
       fit: hasScore ? score : null,
+      scoreStatus: evaluation?.score_status || (hasScore ? "complete" : "insufficient_evidence"),
+      partialScore: evaluation?.partial_score != null ? Number(evaluation.partial_score) : null,
+      coverageWeight: Number(evaluation?.coverage_weight ?? 0),
       categoryScores: evaluation?.category_scores ?? {},
       evidence: asText(evaluation?.evidence, ""),
       improvement: asText(evaluation?.improvement, "")
@@ -619,6 +626,7 @@ function normalizeAnalysis(raw, currentGrade) {
   return {
     competencies,
     majors,
+    aiReview: data.ai_review ?? {used:false,status:"skipped"},
     growth: normalizeGrowth(data, currentGrade),
     strengths: asArray(
       data.strengths ?? data.strong_points ?? []
@@ -951,7 +959,7 @@ async function runAnalysis() {
     return;
   }
 
-  setLoading(analyzeButton, true, "AI 분석 중...");
+  setLoading(analyzeButton, true, "루브릭 분석 중...");
 
   try {
     const response = await apiRequest("/analyze", {
