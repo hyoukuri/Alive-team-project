@@ -1281,3 +1281,49 @@ input[aria-invalid="true"] { border-color: var(--error); }
   .record-actions .btn { flex: 1 1 0; }
   .registered-subject-item { flex-direction: column; align-items: flex-start; }
 }
+
+
+
+/* =========================================
+   학생부 영역별 입력 화면 추가 스타일
+========================================= */
+
+#subject-field,
+#activity-field {
+  width: 100%;
+}
+
+#subject-field[hidden],
+#activity-field[hidden] {
+  display: none !important;
+}
+
+#record-category,
+#subject-select,
+#activity-title,
+#subject-record {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.subject-input-area label {
+  margin-top: 20px;
+  margin-bottom: 8px;
+}
+
+.registered-subject-item {
+  overflow-wrap: anywhere;
+}
+
+.registered-subject-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 650px) {
+  .registered-subject-actions {
+    width: 100%;
+  }
+}
