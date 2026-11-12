@@ -67,8 +67,9 @@ def analyze(request:AnalyzeRequest):
     except Exception as exc:
         # AI outage never causes 502 or a fabricated grade.
         print(f"SEEDU semantic fallback: {type(exc).__name__}: {str(exc)[:180]}")
-        output=safe_fallback(request.records,request.text,request.grade,type(exc).__name__)
-        output["ai_review"]={"used":False,"status":"fallback","reason":"semantic_ai_failed"}
+        error_type = type(exc).__name__
+        output=safe_fallback(request.records,request.text,request.grade,error_type)
+        output["ai_review"]={"used":False,"status":"error","reason":"semantic_ai_failed","error_type":error_type}
         return output
 
 @app.post("/roadmap")
