@@ -94,34 +94,73 @@ def request_semantics(sources, candidates, *, call_fn=None):
     key = os.getenv('OPENROUTER_API_KEY', '').strip()
     if not key:
         raise ValueError('OPENROUTER_API_KEY 미설정')
-    from openai import OpenAI
+    from openai import OpenAI, BadRequestError
     timeout = max(5.0, min(90.0, float(os.getenv('SEMANTIC_AI_TIMEOUT', '40'))))
     max_tokens = max(500, min(10000, int(os.getenv('SEMANTIC_MAX_OUTPUT_TOKENS', '5000'))))
+    model = os.getenv('OPENROUTER_MODEL', 'openrouter/free')
+    common = {
+        'model': model,
+        'temperature': 0,
+        'max_tokens': max_tokens,
+        'extra_body': {
+            'reasoning': {'enabled': False, 'effort': 'none'},
+            'provider': {'options': {'nvidia': {'chat_template_kwargs': {'enable_thinking': False}}}},
+        },
+    }
+
+    def _read_choice(response):
+        if not response.choices:
+            raise ValueError('AI 응답 선택지가 없습니다')
+        choice = response.choices[0]
+        if choice.finish_reason == 'length':
+            print(f'SEEDU semantic length: model={response.model}, max_tokens={max_tokens}, usage={response.usage}')
+            raise ValueError('AI 출력 길이 제한 도달: 추론 토큰 또는 출력 한도 확인 필요')
+        content = choice.message.content
+        if not isinstance(content, str) or not content.strip():
+            print(f'SEEDU semantic empty: model={response.model}, finish_reason={choice.finish_reason}, usage={response.usage}')
+            raise ValueError(f'AI가 텍스트를 반환하지 않았습니다 (finish_reason={choice.finish_reason})')
+        return content
+
+    def _request(client, messages, *, json_mode=True):
+        options = dict(common)
+        options['messages'] = messages
+        if json_mode:
+            options['response_format'] = {'type': 'json_object'}
+        try:
+            return _read_choice(client.chat.completions.create(**options))
+        except BadRequestError as error:
+            # Some free endpoints do not support response_format.
+            # Retry without the parameter ONLY for a provider rejection of JSON mode.
+            details = str(error).lower()
+            if json_mode and any(word in details for word in ('response_format', 'json_object', 'unsupported parameter', 'unsupported feature')):
+                print('SEEDU semantic json_mode_unsupported: retrying without response_format')
+                options.pop('response_format', None)
+                return _read_choice(client.chat.completions.create(**options))
+            raise
+
     with OpenAI(base_url='https://openrouter.ai/api/v1', api_key=key,
                 timeout=timeout, max_retries=0) as client:
-        response = client.chat.completions.create(
-            model=os.getenv('OPENROUTER_MODEL', 'openrouter/free'),
-            temperature=0, max_tokens=max_tokens,
-            messages=[{'role':'system','content':SYSTEM},{'role':'user','content':payload}],
-            # OpenRouter: disable internal reasoning so the completion budget
-            # can be used for the JSON answer, not reasoning tokens.
-            extra_body={
-                'reasoning': {'enabled': False, 'effort': 'none'},
-                'provider': {
-                    'options': {
-                        'nvidia': {'chat_template_kwargs': {'enable_thinking': False}}
-                    }
-                },
-            },
-        )
-    if not response.choices:
-        raise ValueError('AI 응답 선택지가 없습니다')
-    choice = response.choices[0]
-    content = choice.message.content
-    if choice.finish_reason == 'length':
-        print(f'SEEDU semantic length: model={response.model}, max_tokens={max_tokens}, usage={response.usage}')
-        raise ValueError('AI 출력 길이 제한 도달: 모델 출력량 또는 추론 토큰 한도 확인 필요')
-    if not isinstance(content, str) or not content.strip():
-        print(f'SEEDU semantic empty: model={response.model}, finish_reason={choice.finish_reason}, usage={response.usage}')
-        raise ValueError(f'AI가 텍스트를 반환하지 않았습니다 (finish_reason={choice.finish_reason})')
-    return _normalize(_parse(content), candidates)
+        messages = [{'role':'system','content':SYSTEM}, {'role':'user','content':payload}]
+        content = _request(client, messages)
+        try:
+            parsed = _parse(content)
+        except (json.JSONDecodeError, ValueError) as exc:
+            # Do not silently infer missing evidence or scores from broken JSON.
+            # One short correction request asks the model to repair syntax only.
+            print(f'SEEDU semantic json_repair: {type(exc).__name__}; attempting one repair')
+            repair_system = (
+                '다음은 JSON 구문이 깨진 응답이다. 누락된 쉼표, 따옴표, 괄호만 바로잡고 '
+                'JSON 객체 하나만 반환하라. 내용과 숫자, 인용문, 배열 순서는 바꾸지 마라. '
+                '복구할 수 없으면 {"f":[],"c":[],"m":[]}를 반환하라.'
+            )
+            repaired = _request(client, [
+                {'role':'system', 'content':repair_system},
+                {'role':'user', 'content':content[:max(1000, min(16000, max_tokens*4))]},
+            ])
+            try:
+                parsed = _parse(repaired)
+            except (json.JSONDecodeError, ValueError) as second_exc:
+                print(f'SEEDU semantic json_repair_failed: {type(second_exc).__name__}')
+                raise ValueError('AI JSON 복구 실패: 모델이 유효한 JSON을 반환하지 않았습니다') from second_exc
+            print('SEEDU semantic json_repair_success')
+    return _normalize(parsed, candidates)
