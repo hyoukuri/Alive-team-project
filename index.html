@@ -1,51 +1,104 @@
-
 <!DOCTYPE html>
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SEEDU:ON | 나의 진로 설계</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap">
   <link rel="stylesheet" href="style.css">
   <script src="script.js" defer></script>
 </head>
-<body>
+<body data-page="0">
 
-  <header>
-    <div class="logo">SEEDU<span>:ON</span></div>
-    <p>가능성을 발견하고, 진로를 켜다.</p>
+  <header class="site-header">
+    <div class="container header-inner">
+      <button type="button" class="logo" data-go-page="0" aria-label="SEEDU:ON 홈으로">
+        <span class="logo-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3.5v8"/>
+            <path d="M6.6 7.2a7.5 7.5 0 1 0 10.8 0"/>
+          </svg>
+        </span>
+        <span class="logo-text">SEEDU:ON</span>
+      </button>
+      <p class="header-page" id="header-page">나의 진로 설계</p>
+    </div>
   </header>
 
-  <main>
-    <nav class="steps">
-      <div class="step active">01 생기부 입력</div>
-      <div class="step">02 AI 역량 분석</div>
-      <div class="step">03 맞춤 진로 설계</div>
+  <main class="container">
+    <!-- 홈 화면 -->
+    <section id="home-page">
+      <div class="hero">
+        <p class="hero-badge">AI 진로 분석 서비스</p>
+        <h1 class="hero-title">
+          <span>가능성을 발견하고,</span>
+          <span class="accent">진로를 켜다.</span>
+        </h1>
+        <p class="hero-desc">학교생활기록부를 바탕으로 나의 역량과 어울리는 진로를 분석합니다.</p>
+        <div class="hero-actions">
+          <button type="button" class="btn btn-primary" data-go-page="1">AI 분석 시작하기</button>
+        </div>
+      </div>
+
+      <div class="feature-list">
+        <article class="feature-card">
+          <p class="feature-num">01</p>
+          <h2>생기부 입력</h2>
+          <p>학년별로 학교생활기록부 내용을 입력합니다.</p>
+        </article>
+        <article class="feature-card">
+          <p class="feature-num">02</p>
+          <h2>AI 역량 분석</h2>
+          <p>5대 역량과 강점, 보완할 점을 확인합니다.</p>
+        </article>
+        <article class="feature-card">
+          <p class="feature-num">03</p>
+          <h2>맞춤 진로 설계</h2>
+          <p>어울리는 학과와 선택과목, 탐구활동을 제안받습니다.</p>
+        </article>
+      </div>
+    </section>
+
+    <nav class="steps" aria-label="진행 단계">
+      <div class="step active"><span class="step-num">1</span><span class="step-label">생기부 입력</span></div>
+      <div class="step"><span class="step-num">2</span><span class="step-label">AI 역량 분석</span></div>
+      <div class="step"><span class="step-num">3</span><span class="step-label">맞춤 진로 설계</span></div>
     </nav>
 
     <!-- 첫 번째 화면 -->
-    <section id="input-page">
+    <section id="input-page" class="panel">
       <h1>나의 가능성을 발견해 보세요</h1>
-      <p>학교생활기록부를 바탕으로 역량과 진로를 분석합니다.</p>
+      <p class="panel-desc">학교생활기록부를 바탕으로 역량과 진로를 분석합니다.</p>
 
-      <h2>현재 학년</h2>
-      <select id="current-grade">
+      <fieldset class="grade-choice">
+        <legend class="field-label">현재 학년</legend>
+        <div class="grade-choice-options">
+          <label class="choice-card"><input type="radio" name="current-grade-choice" value="1" checked> 1학년</label>
+          <label class="choice-card"><input type="radio" name="current-grade-choice" value="2"> 2학년</label>
+          <label class="choice-card"><input type="radio" name="current-grade-choice" value="3"> 3학년</label>
+        </div>
+      </fieldset>
+
+      <!-- 기존 JavaScript가 읽는 학년 값 (위 라디오 버튼과 연동) -->
+      <select id="current-grade" hidden aria-hidden="true" tabindex="-1">
         <option value="1">1학년</option>
         <option value="2">2학년</option>
         <option value="3">3학년</option>
       </select>
 
-      <h2>학교생활기록부 입력</h2>
+      <h2 class="field-label">학교생활기록부 입력</h2>
 
       <div class="grade-tabs">
-        <button class="grade-tab active" data-grade="1">1학년</button>
-        <button class="grade-tab" data-grade="2">2학년</button>
-        <button class="grade-tab" data-grade="3">3학년</button>
+        <button type="button" class="grade-tab active" data-grade="1">1학년</button>
+        <button type="button" class="grade-tab" data-grade="2">2학년</button>
+        <button type="button" class="grade-tab" data-grade="3">3학년</button>
       </div>
 
-      
       <div class="subject-input-area">
         <h3>과목별 세특 입력</h3>
-        <p>과목을 선택하고 세부능력 및 특기사항을 등록하세요.</p>
+        <p class="hint">과목을 선택하고 세부능력 및 특기사항을 등록하세요.</p>
 
         <label for="subject-select">과목 선택</label>
         <select id="subject-select">
@@ -60,7 +113,7 @@
 
         <p id="character-count">0자 입력</p>
 
-        <button type="button" id="add-subject-button">
+        <button type="button" id="add-subject-button" class="btn btn-secondary">
           + 과목 등록하기
         </button>
 
@@ -73,71 +126,76 @@
       <!-- 기존 JavaScript와의 호환성을 위한 입력 데이터 -->
       <textarea id="student-record" hidden></textarea>
 
-      
-      <button id="analyze-button">AI 분석 시작하기</button>
+      <div class="notice">
+        <svg class="notice-icon" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5"/><path d="M12 16.5h.01"/>
+        </svg>
+        <p>이름, 학교명, 교사명은 지우고 입력해 주세요. 결과는 교육적 참고 지표이며 합격 예측이 아닙니다.</p>
+      </div>
 
-
-      
+      <div class="actions">
+        <button type="button" id="analyze-button" class="btn btn-primary">AI 분석 시작하기</button>
+      </div>
     </section>
 
-    
+
     <!-- 두 번째 화면 -->
     <section id="analysis-page" hidden>
-      <button type="button" class="back-button" data-go-page="1">
-        ← 이전 단계로 돌아가기
-      </button>
-
       <h1>AI 역량 분석 리포트</h1>
       <p>나의 강점과 학년별 성장 과정을 확인합니다.</p>
 
       <div id="analysis-results"></div>
 
-      <button id="go-to-plan">나의 진로 설계하기</button>
+      <div class="actions">
+        <button type="button" class="back-button btn btn-secondary-dark" data-go-page="1">
+          ← 이전 단계로 돌아가기
+        </button>
+        <button type="button" id="go-to-plan" class="btn btn-primary">나의 진로 설계하기</button>
+      </div>
     </section>
 
 
     <!-- 세 번째 화면 -->
-    
-<section id="plan-page" hidden>
-  <h1>나만의 진로 로드맵</h1>
-  <p>희망 학과에 맞는 선택과목과 탐구활동을 추천합니다.</p>
+    <section id="plan-page" hidden>
+      <h1 class="page-title">나만의 <span class="accent">진로 로드맵</span></h1>
+      <p class="page-desc">희망 학과에 맞는 선택과목과 탐구활동을 추천합니다.</p>
 
-  <div class="result-card">
-    <h2>희망 학과 선택</h2>
-    <p>AI가 추천한 학과 중 하나를 선택하거나 직접 입력하세요.</p>
+      <div class="result-card">
+        <h2 class="card-heading">희망 학과 선택</h2>
+        <p class="muted">AI가 추천한 학과 중 하나를 선택하거나 직접 입력하세요.</p>
 
-    <div id="major-selection"></div>
+        <div id="major-selection"></div>
 
-    <div style="margin-top: 20px;">
-      <label for="custom-major">다른 학과 직접 입력</label>
-      <input
-        type="text"
-        id="custom-major"
-        placeholder="예: 인공지능학과, 컴퓨터공학과"
-        style="width: 100%; padding: 12px; margin-top: 8px;"
-      >
-    </div>
+        <label for="custom-major" class="hint">다른 학과 직접 입력</label>
+        <input
+          type="text"
+          id="custom-major"
+          placeholder="예: 인공지능학과, 컴퓨터공학과"
+        >
 
-    <button
-      type="button"
-      id="roadmap-button"
-      style="margin-top: 20px;"
-    >
-      AI 맞춤 로드맵 생성하기
-    </button>
-  </div>
+        <div class="actions">
+          <button type="button" id="roadmap-button" class="btn btn-primary">
+            AI 맞춤 로드맵 생성하기
+          </button>
+        </div>
+      </div>
 
-  <div id="plan-results"></div>
+      <div id="plan-results"></div>
 
-  <button type="button" data-go-page="2">
-    이전 단계로 돌아가기
-  </button>
-</section>
+      <div class="actions actions-start">
+        <button type="button" class="btn btn-secondary-dark" data-go-page="2">
+          이전 단계로 돌아가기
+        </button>
+      </div>
+    </section>
 
   </main>
 
-  <footer>
-    <p>SEEDU:ON · Your Potential, Your Path.</p>
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <p>결과는 교육적 참고 지표이며 대학 합격 확률이나 공식 입학사정 결과가 아닙니다.</p>
+      <p>SEEDU:ON · Your Potential, Your Path.</p>
+    </div>
   </footer>
 
 </body>

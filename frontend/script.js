@@ -58,6 +58,8 @@ function updateVisibleGrades() {
 }
 
 function showPage(page) {
+  const homePage = $("home-page");
+  if (homePage) homePage.hidden = page !== 0;
   $("input-page").hidden = page !== 1;
   $("analysis-page").hidden = page !== 2;
   $("plan-page").hidden = page !== 3;
@@ -65,6 +67,14 @@ function showPage(page) {
   steps.forEach((step, i) =>
     step.classList.toggle("active", i === page - 1)
   );
+
+  // 디자인용: 페이지별 컨테이너 폭과 헤더의 현재 페이지 이름
+  document.body.dataset.page = String(page);
+  const headerPage = $("header-page");
+  if (headerPage) {
+    headerPage.textContent =
+      ["나의 진로 설계", "생기부 입력", "AI 역량 분석", "맞춤 진로 설계"][page] || "";
+  }
 
   window.scrollTo(0, 0);
 }
@@ -86,6 +96,13 @@ function card(title, extraClass = "") {
   return section;
 }
 
+// 학과 적합도 점수(0~100)를 화면 표시용 단계로 바꾼다
+function fitLevel(score) {
+  if (score >= 80) return "적합도 높음";
+  if (score >= 60) return "적합도 보통";
+  return "적합도 낮음";
+}
+
 function radarChart(items) {
   const wrap = el("div", "radar-wrap");
   const canvas = document.createElement("canvas");
@@ -95,15 +112,19 @@ function radarChart(items) {
   canvas.setAttribute("role", "img");
   canvas.setAttribute(
     "aria-label",
-    "5대 역량 레이더 차트. 아래 역량별 점수와 근거를 함께 확인하세요."
+    "5대 역량 레이더 차트. " +
+      items
+        .map((item) => `${item.name} ${Math.round(item.score)}점`)
+        .join(", ") +
+      " (100점 만점)"
   );
 
   wrap.append(canvas);
 
   const ctx = canvas.getContext("2d");
   const cx = 310;
-  const cy = 177;
-  const radius = 112;
+  const cy = 182;
+  const radius = 124;
 
   const angle = (i) =>
     -Math.PI / 2 + (i * Math.PI * 2) / 5;
@@ -113,14 +134,13 @@ function radarChart(items) {
     cy + Math.sin(angle(i)) * r
   ];
 
-  function polygon(scale, fill, stroke, width = 1) {
+  function polygon(scale, fill, stroke, width = 1, useScore = false) {
     ctx.beginPath();
 
     items.forEach((item, i) => {
-      const scoreScale =
-        fill === "rgba(68,215,187,0.25)"
-          ? Number(item.score) / 100
-          : 1;
+      const scoreScale = useScore
+        ? Number(item.score) / 100
+        : 1;
 
       const [x, y] = point(
         i,
@@ -143,9 +163,21 @@ function radarChart(items) {
     ctx.stroke();
   }
 
-  [0.25, 0.5, 0.75, 1].forEach((r) =>
-    polygon(r, null, "#DDE6EE")
-  );
+  // 캔버스는 CSS 변수를 직접 못 쓰므로 디자인 토큰을 읽어 온다
+  const css = getComputedStyle(document.documentElement);
+  const token = (name, fallback) =>
+    css.getPropertyValue(name).trim() || fallback;
+
+  const gridColor = token("--chip", "#CBD5E1");
+  const lineColor = token("--accent-deep", "#CA8A04");
+  const labelColor = token("--on-card", "#0F172A");
+
+  [0.25, 0.5, 0.75].forEach((r) => {
+    ctx.globalAlpha = 0.6;
+    polygon(r, null, gridColor);
+    ctx.globalAlpha = 1;
+  });
+  polygon(1, null, gridColor, 1.5);
 
   items.forEach((_, i) => {
     const [x, y] = point(i, radius);
@@ -153,19 +185,21 @@ function radarChart(items) {
     ctx.beginPath();
     ctx.moveTo(cx, cy);
     ctx.lineTo(x, y);
-    ctx.strokeStyle = "#E2E8F0";
+    ctx.strokeStyle = gridColor;
+    ctx.lineWidth = 1;
     ctx.stroke();
   });
 
   polygon(
     1,
-    "rgba(68,215,187,0.25)",
-    "#159E9C",
-    3
+    "rgba(250,204,21,0.40)",
+    lineColor,
+    2.5,
+    true
   );
 
-  ctx.font = "15px Malgun Gothic, sans-serif";
-  ctx.fillStyle = "#233D53";
+  ctx.font = '500 15px "Noto Sans KR", "Malgun Gothic", sans-serif';
+  ctx.fillStyle = labelColor;
   ctx.textAlign = "center";
 
   items.forEach((item, i) => {
@@ -196,8 +230,9 @@ function renderDashboard(data) {
 
   analysisResults.append(title);
 
-  const competencies = card("5대 핵심 역량");
-  competencies.append(radarChart(data.competencies));
+  const competencies = card("5대 핵심 역량", "span-full");
+  const competencyLayout = el("div", "competency-layout");
+  competencyLayout.append(radarChart(data.competencies));
 
   const scores = el("div", "score-grid");
 
@@ -228,11 +263,28 @@ function renderDashboard(data) {
     scores.append(box);
   });
 
-  competencies.append(scores);
+  competencyLayout.append(scores);
+  competencies.append(competencyLayout);
   analysisResults.append(competencies);
 
-  
-  const majors = card("추천 학과 TOP 3");
+  // 강점 / 보완점: 카드 두 장으로 나란히 표시
+  [
+    ["강점", data.strengths, "strength-card"],
+    ["보완점", data.improvements, "improve-card"]
+  ].forEach(([title, values, className]) => {
+    const box = card(title, `feedback-card ${className}`);
+    const list = el("ul", "");
+
+    values.forEach((value) =>
+      list.append(el("li", "", value))
+    );
+
+    box.append(list);
+    analysisResults.append(box);
+  });
+
+  const majors = card("추천 학과 TOP 3", "span-full");
+  const majorList = el("div", "major-list");
 
   const categoryMax = {
     "전공 관련 활동": 30,
@@ -243,44 +295,33 @@ function renderDashboard(data) {
   };
 
   data.majors.forEach((item, i) => {
-    const box = el("div", "major-item");
-    const top = el("div", "major-top");
-
-    top.append(
-      el("strong", "", `${i + 1}. ${item.name}`)
+    const box = el(
+      "div",
+      i === 0 ? "major-item is-top" : "major-item"
     );
-
     const hasScore = item.fit !== null;
 
-    top.append(
-      el(
-        "span",
-        "fit-number",
-        hasScore
-          ? `${item.fit.toFixed(1)} / 100`
-          : "평가 점수 없음"
-      )
-    );
-
-    box.append(top);
-
-    if (hasScore) {
-      const track = el("div", "bar-track");
-      const fill = el("div", "bar-fill major-fill");
-
-      fill.style.width = `${item.fit}%`;
-      track.append(fill);
-      box.append(track);
-    }
-
+    // 순위는 숫자 대신 '적합도 높음/보통/낮음' 단계로 보여 준다
     box.append(
+      el(
+        "p",
+        "major-rank",
+        hasScore
+          ? `${i + 1}위 · ${fitLevel(item.fit)}`
+          : `${i + 1}위 · 평가 점수 없음`
+      ),
+      el("h3", "major-name", item.name),
       el("p", "evidence", item.reason)
     );
 
     if (hasScore) {
-      const details = el("div", "major-fit-details");
+      // 세부 점수는 접어 두고, 펼치면 볼 수 있게 한다
+      const details = el("details", "major-fit-details");
 
-      details.style.marginTop = "16px";
+      details.append(
+        el("summary", "", "세부 평가 보기"),
+        el("p", "evidence", `종합 평가 ${item.fit.toFixed(1)} / 100`)
+      );
 
       Object.entries(categoryMax).forEach(
         ([category, maximum]) => {
@@ -329,8 +370,10 @@ function renderDashboard(data) {
       box.append(details);
     }
 
-    majors.append(box);
+    majorList.append(box);
   });
+
+  majors.append(majorList);
 
   majors.append(
     el(
@@ -344,7 +387,7 @@ function renderDashboard(data) {
 
 
 
-  const growth = card("학년별 성장 과정");
+  const growth = card("학년별 성장 과정", "span-full");
   const timeline = el("div", "growth-timeline");
 
   [...data.growth]
@@ -362,33 +405,6 @@ function renderDashboard(data) {
 
   growth.append(timeline);
   analysisResults.append(growth);
-
-  const feedback = card("강점과 보완할 역량");
-  const columns = el("div", "feedback-grid");
-
-  [
-    ["강점", data.strengths, "strength-box"],
-    ["보완점", data.improvements, "improve-box"]
-  ].forEach(([title, values, className]) => {
-    const box = el(
-      "div",
-      `feedback-box ${className}`
-    );
-
-    box.append(el("h3", "", title));
-
-    const list = el("ul", "");
-
-    values.forEach((value) =>
-      list.append(el("li", "", value))
-    );
-
-    box.append(list);
-    columns.append(box);
-  });
-
-  feedback.append(columns);
-  analysisResults.append(feedback);
 }
 
 
@@ -780,19 +796,24 @@ function renderRoadmap(data) {
     );
   }
 
+  const subjectList = el("div", "subject-list");
+
   data.subjects.forEach((item) => {
     const box = el("div", "subject-item");
     box.append(
       el("h3", "", item.name),
       el("p", "evidence", item.reason)
     );
-    subjectCard.append(box);
+    subjectList.append(box);
   });
+
+  if (data.subjects.length > 0) subjectCard.append(subjectList);
 
   planResults.append(subjectCard);
 
   // 2. 탐구활동 3개
   const activityCard = card("추천 심화 탐구활동 TOP 3");
+  const activityList = el("div", "activity-list");
 
   data.activities.slice(0, 3).forEach((item, i) => {
     const box = el("div", "activity-item");
@@ -819,8 +840,10 @@ function renderRoadmap(data) {
       );
     }
 
-    activityCard.append(box);
+    activityList.append(box);
   });
+
+  if (data.activities.length > 0) activityCard.append(activityList);
 
   if (data.activities.length === 0) {
     activityCard.append(
@@ -1115,15 +1138,27 @@ if (goRoadmapButton) {
   backButtons.forEach((button) => {
     button.addEventListener("click", () => {
       const page = Number(button.dataset.goPage);
-      if ([1, 2, 3].includes(page)) {
+      if ([0, 1, 2, 3].includes(page)) {
         showPage(page);
       }
     });
   });
 
+  // 디자인용 학년 라디오 버튼 → 기존 #current-grade 선택값과 동기화
+  document
+    .querySelectorAll('input[name="current-grade-choice"]')
+    .forEach((radio) => {
+      radio.checked = radio.value === gradeSelect.value;
+      radio.addEventListener("change", () => {
+        if (!radio.checked) return;
+        gradeSelect.value = radio.value;
+        gradeSelect.dispatchEvent(new Event("change"));
+      });
+    });
+
   updateVisibleGrades();
   updateCount();
-  showPage(1);
+  showPage(0); // 홈 화면에서 시작
 
   console.log("SEEDU:ON 초기화 완료");
 }
