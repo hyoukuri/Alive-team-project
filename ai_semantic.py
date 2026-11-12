@@ -103,6 +103,16 @@ def request_semantics(sources, candidates, *, call_fn=None):
             model=os.getenv('OPENROUTER_MODEL', 'openrouter/free'),
             temperature=0, max_tokens=max_tokens,
             messages=[{'role':'system','content':SYSTEM},{'role':'user','content':payload}],
+            # OpenRouter: disable internal reasoning so the completion budget
+            # can be used for the JSON answer, not reasoning tokens.
+            extra_body={
+                'reasoning': {'enabled': False, 'effort': 'none'},
+                'provider': {
+                    'options': {
+                        'nvidia': {'chat_template_kwargs': {'enable_thinking': False}}
+                    }
+                },
+            },
         )
     if not response.choices:
         raise ValueError('AI 응답 선택지가 없습니다')
