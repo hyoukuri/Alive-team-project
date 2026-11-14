@@ -1,9 +1,10 @@
-"""SEEDU:ON 3.1 — one small OpenRouter call, compatible with semantic_engine.
+"""SEEDU:ON 3.1 — lightweight OpenRouter semantics with safe 429 diagnostics.
 
-No forced reasoning setting, no stale model IDs, no automatic repeated model retries.
-Do not send personally identifiable student data without appropriate consent.
+One completion request, no automatic retries, no model-specific reasoning options.
+Logs safe error metadata (never API keys, prompts or student-record text).
 """
 from __future__ import annotations
+
 import json
 import logging
 import os
@@ -11,6 +12,7 @@ import re
 import time
 import urllib.request
 from typing import Any
+
 from rubric_v2 import COMPETENCY_NAMES
 
 LOG = logging.getLogger('seedu.semantic')
@@ -33,17 +35,16 @@ SYSTEM = ("학생부 근거 추출기다. 아래 학생부에서 실제 수행·
 def _payload(sources: list[dict], candidates: list[str]) -> str:
     if not sources:
         raise ValueError('학생부 기록 없음')
-    # Short input reduces free-model load. Preserve source indexes for exact quote checks.
     budget = 1900
     count = min(len(sources), 7)
     per_item = max(140, budget // max(count, 1))
     selected = []
     for i, item in enumerate(sources[:7]):
         raw = str(item.get('text') or '').strip()
-        text = raw[:min(per_item, budget)]
-        if text:
-            selected.append({'i': i, 't': text})
-            budget -= len(text)
+        excerpt = raw[:min(per_item, budget)]
+        if excerpt:
+            selected.append({'i': i, 't': excerpt})
+            budget -= len(excerpt)
         if budget <= 0:
             break
     return json.dumps({'s': selected, 'm': list(candidates[:3])}, ensure_ascii=False, separators=(',', ':'))
@@ -64,96 +65,153 @@ def _json_object(content: str) -> dict:
 
 
 def _normalize(parsed: dict, candidates: list[str]) -> dict:
-    facts=[]
+    facts = []
     for item in parsed['f'][:5]:
-        if not isinstance(item,list) or len(item)<3 or type(item[0]) is not int or not isinstance(item[1],str) or not isinstance(item[2],list):
+        if not isinstance(item, list) or len(item) < 3 or type(item[0]) is not int or not isinstance(item[1], str) or not isinstance(item[2], list):
             continue
-        facts.append({'source_index':item[0], 'quote':item[1], 'tags':[x for x in item[2] if isinstance(x,str) and x in TAGS]})
-    competencies=[]
+        facts.append({'source_index': item[0], 'quote': item[1], 'tags': [x for x in item[2] if isinstance(x, str) and x in TAGS]})
+    competencies = []
     for i, name in enumerate(COMPETENCY_NAMES):
-        row=parsed['c'][i]
-        rating=row[0] if isinstance(row,list) and row else None
-        links=row[1] if isinstance(row,list) and len(row)>1 and isinstance(row[1],list) else []
-        if type(rating) is not int or rating<0 or rating>4:
-            rating=None
-        competencies.append({'name':name,'rating':rating,'evidence_ids':[x for x in links if type(x) is int and 0<=x<len(facts)]})
-    raw_links=parsed.get('m',[])
-    major_links=[]
+        row = parsed['c'][i]
+        rating = row[0] if isinstance(row, list) and row else None
+        links = row[1] if isinstance(row, list) and len(row) > 1 and isinstance(row[1], list) else []
+        if type(rating) is not int or rating < 0 or rating > 4:
+            rating = None
+        competencies.append({'name': name, 'rating': rating, 'evidence_ids': [x for x in links if type(x) is int and 0 <= x < len(facts)]})
+    raw_links = parsed.get('m', [])
+    major_links = []
     for i, name in enumerate(candidates[:3]):
-        ids=raw_links[i] if isinstance(raw_links,list) and len(raw_links)>i and isinstance(raw_links[i],list) else []
-        major_links.append({'major':name,'evidence_ids':[x for x in ids if type(x) is int and 0<=x<len(facts)]})
-    return {'facts':facts,'competencies':competencies,'major_links':major_links}
+        ids = raw_links[i] if isinstance(raw_links, list) and len(raw_links) > i and isinstance(raw_links[i], list) else []
+        major_links.append({'major': name, 'evidence_ids': [x for x in ids if type(x) is int and 0 <= x < len(facts)]})
+    return {'facts': facts, 'competencies': competencies, 'major_links': major_links}
 
 
 def _pick_free_chat_model() -> str:
-    """Discover one currently listed free non-reasoning chat model; no AI token cost.
-
-    The metadata is imperfect: availability and vendor 429 can still occur.
-    Fallback to OpenRouter's own free router if catalog cannot be fetched.
-    """
+    """Pick a listed free chat model; availability is not guaranteed."""
     global _model_id, _model_checked_at
     if _model_id and time.monotonic() - _model_checked_at < 3600:
         return _model_id
     try:
-        req=urllib.request.Request(URL+'/models',headers={'Accept':'application/json','User-Agent':'SEEDU-ON/3.1'})
-        with urllib.request.urlopen(req,timeout=5) as response:
-            models=json.load(response).get('data',[])
-        options=[]
+        req = urllib.request.Request(URL + '/models', headers={'Accept': 'application/json', 'User-Agent': 'SEEDU-ON/3.1'})
+        with urllib.request.urlopen(req, timeout=5) as response:
+            models = json.load(response).get('data', [])
+        options = []
         for entry in models:
-            ident=entry.get('id','') if isinstance(entry,dict) else ''
+            ident = entry.get('id', '') if isinstance(entry, dict) else ''
             if not ident.endswith(':free'):
                 continue
-            architecture=entry.get('architecture') or {}
+            architecture = entry.get('architecture') or {}
             if 'text' not in (architecture.get('input_modalities') or ['text']) or 'text' not in (architecture.get('output_modalities') or ['text']):
                 continue
-            name=ident.lower()
-            if any(x in name for x in ('reasoning','thinking','nemotron','qwq','deepseek-r1','rerank','embedding','audio','vision','vl-','-vl','ocr')):
+            name = ident.lower()
+            if any(x in name for x in ('reasoning', 'thinking', 'nemotron', 'qwq', 'deepseek-r1', 'rerank', 'embedding', 'audio', 'vision', 'vl-', '-vl', 'ocr')):
                 continue
-            parameters=entry.get('supported_parameters') or []
+            parameters = entry.get('supported_parameters') or []
             if parameters and 'max_tokens' not in parameters:
                 continue
-            # Avoid huge providers that might spend completion budget on mandatory thinking.
-            score=0
-            if 'instruct' in name or '-it:' in name: score+=5
-            if 'gemma' in name: score+=2
-            if 'chat' in name: score+=2
-            if 'flash' in name: score+=1
-            if '70b' in name or '120b' in name: score-=3
+            score = 0
+            if 'instruct' in name or '-it:' in name:
+                score += 5
+            if 'gemma' in name:
+                score += 2
+            if 'chat' in name:
+                score += 2
+            if 'flash' in name:
+                score += 1
+            if '70b' in name or '120b' in name:
+                score -= 3
             options.append((score, ident))
-        options.sort(key=lambda x:(-x[0],x[1]))
-        _model_id=options[0][1] if options else 'openrouter/free'
+        options.sort(key=lambda x: (-x[0], x[1]))
+        _model_id = options[0][1] if options else 'openrouter/free'
     except Exception as exc:
-        LOG.info('SEEDU catalog discovery skipped: %s',type(exc).__name__)
-        _model_id='openrouter/free'
-    _model_checked_at=time.monotonic()
+        LOG.info('SEEDU catalog discovery skipped: %s', type(exc).__name__)
+        _model_id = 'openrouter/free'
+    _model_checked_at = time.monotonic()
     return _model_id
 
 
+def _safe_token(value: Any, limit: int = 160) -> str:
+    """Keep only unstructured metadata characters, never raw request/response text."""
+    if not isinstance(value, (str, int, float, bool)):
+        return '-'
+    text = str(value).strip()[:limit]
+    # The following is intended for machine-readable IDs/codes only.
+    return re.sub(r'[^a-zA-Z0-9_./:+ -]', '_', text) or '-'
+
+
+def _error_metadata(exc: Exception) -> dict:
+    """Extract API error diagnostics without logging student data or credentials."""
+    status = getattr(exc, 'status_code', None)
+    response = getattr(exc, 'response', None)
+    headers = getattr(response, 'headers', None) or {}
+    result: dict[str, Any] = {
+        'status': status,
+        'retry_after': _safe_token(headers.get('retry-after')) if headers.get('retry-after') is not None else '-',
+        'request_id': _safe_token(headers.get('x-request-id') or headers.get('x-openrouter-request-id')),
+        'error_code': '-',
+        'provider': '-',
+        'upstream_status': '-',
+        'limit_source': '-',
+    }
+    try:
+        body = response.json() if response is not None else None
+    except Exception:
+        body = None
+    if isinstance(body, dict):
+        err = body.get('error', {})
+        if isinstance(err, dict):
+            result['error_code'] = _safe_token(err.get('code'))
+            metadata = err.get('metadata')
+            if isinstance(metadata, dict):
+                result['provider'] = _safe_token(metadata.get('provider_name') or metadata.get('provider'))
+                result['upstream_status'] = _safe_token(metadata.get('status_code') or metadata.get('upstream_status'))
+                result['limit_source'] = _safe_token(metadata.get('limit_source'))
+            if result['provider'] == '-':
+                result['provider'] = _safe_token(err.get('provider'))
+        elif isinstance(err, str):
+            # Do not log arbitrary message: it can contain untrusted or sensitive content.
+            pass
+    return result
+
+
 def request_semantics(sources, candidates, *, call_fn=None):
-    payload=_payload(sources,candidates)
+    payload = _payload(sources, candidates)
     if call_fn is not None:
-        return _normalize(_json_object(call_fn(SYSTEM,payload)),candidates)
-    key=os.getenv('OPENROUTER_API_KEY','').strip()
+        return _normalize(_json_object(call_fn(SYSTEM, payload)), candidates)
+    key = os.getenv('OPENROUTER_API_KEY', '').strip()
     if not key:
         raise ValueError('OPENROUTER_API_KEY 미설정')
     from openai import OpenAI
-    # OPENROUTER_MODEL may be a previous stale model; use only the router in this free edition.
-    # 1 completion request, 0 automatic retries, no model-specific reasoning controls.
-    with OpenAI(base_url=URL,api_key=key,timeout=35.0,max_retries=0) as client:
-        r=client.chat.completions.create(
-            model=_pick_free_chat_model(),
-            messages=[{'role':'system','content':SYSTEM},{'role':'user','content':payload}],
-            max_tokens=1800,temperature=0.0,
+    model = _pick_free_chat_model()
+    LOG.info('SEEDU semantic request: model=%s', _safe_token(model))
+    try:
+        # No repeated requests, no model-specific reasoning controls.
+        with OpenAI(base_url=URL, api_key=key, timeout=35.0, max_retries=0) as client:
+            r = client.chat.completions.create(
+                model=model,
+                messages=[{'role': 'system', 'content': SYSTEM}, {'role': 'user', 'content': payload}],
+                max_tokens=1800,
+                temperature=0.0,
+            )
+    except Exception as exc:
+        info = _error_metadata(exc)
+        LOG.warning(
+            'SEEDU semantic API error: model=%s type=%s status=%s error_code=%s '
+            'provider=%s upstream_status=%s limit_source=%s retry_after=%s request_id=%s',
+            _safe_token(model), type(exc).__name__, info['status'], info['error_code'],
+            info['provider'], info['upstream_status'], info['limit_source'],
+            info['retry_after'], info['request_id'],
         )
-    choices=getattr(r,'choices',[]) or []
+        raise
+    choices = getattr(r, 'choices', []) or []
     if not choices:
         raise ValueError('AI 응답 선택지 없음')
-    choice=choices[0]
-    if getattr(choice,'finish_reason',None)=='length':
+    choice = choices[0]
+    if getattr(choice, 'finish_reason', None) == 'length':
         raise ValueError('AI 출력 토큰 한도 초과')
-    content=getattr(getattr(choice,'message',None),'content',None)
-    data=_normalize(_json_object(content),candidates)
+    content = getattr(getattr(choice, 'message', None), 'content', None)
+    data = _normalize(_json_object(content), candidates)
     if not data['facts']:
         raise ValueError('AI가 근거 인용을 반환하지 않음')
-    LOG.info('SEEDU semantic success: model=%s facts=%d',getattr(r,'model','unknown'),len(data['facts']))
+    LOG.info('SEEDU semantic success: model=%s facts=%d', _safe_token(getattr(r, 'model', 'unknown')), len(data['facts']))
     return data
