@@ -277,6 +277,78 @@ def majors_from_ai(raw_links, facts, candidates):
     return recommends, fits
 
 
+# --- Evidence-grounded strengths and improvements (presentation only). ---
+# This section must not modify ratings or invent student actions.
+STRENGTH_INTERPRETATION = {
+    "학업역량": "교과 학습과 과제 수행에서 확인된 활동입니다.",
+    "진로역량": "관심 분야를 탐색하거나 전공과 연결한 활동입니다.",
+    "탐구역량": "문제를 조사하고 탐구 과정을 수행한 근거입니다.",
+    "공동체역량": "공동 활동에서 참여하거나 맡은 역할을 수행한 근거입니다.",
+    "성장가능성": "학습을 점검하거나 조정한 행동에 관한 근거입니다.",
+}
+IMPROVEMENT_NEXT = {
+    "학업역량": "개념을 적용한 결과와 오류를 확인하고, 수정 후 결과를 다시 비교한 기록을 보완해 보세요.",
+    "진로역량": "탐색한 관심 분야를 후속 학습·체험으로 연결하고, 실행 결과를 남겨 보세요.",
+    "탐구역량": "문제 설정부터 방법·결과·재검증까지 이어지는 과정을 구체적으로 기록해 보세요.",
+    "공동체역량": "본인의 역할뿐 아니라 공동 문제 해결과 협력 과정에서의 구체적인 기여를 기록해 보세요.",
+    "성장가능성": "피드백을 반영해 무엇을 바꾸었고, 변화의 효과를 어떻게 확인했는지 기록해 보세요.",
+}
+
+
+def _visible_evidence(item):
+    """Only verified input quotes are eligible; no invented evidence."""
+    src = item.get("evidence_source") or {}
+    if isinstance(src, dict) and src.get("verified") is True:
+        quote = str(src.get("quote") or "").strip()
+        if quote:
+            return f"{src.get('grade', '?')}학년 {src.get('category', '학생부')} — \"{quote[:180]}{'…' if len(quote)>180 else ''}\""
+    return None
+
+
+def strengths_and_weaknesses(competencies):
+    """Explain confirmed scores without changing the scoring rubric.
+
+    A high relative rank is not claimed to be excellent. N/E is not treated as 0.
+    """
+    evaluated = [(index, item) for index, item in enumerate(competencies)
+                 if type(item.get('rating')) is int and _visible_evidence(item)]
+    pending = [item for item in competencies if item.get('rating') is None]
+    best = sorted(evaluated, key=lambda pair: (-pair[1]['rating'], pair[0]))[:2]
+    # Low-scoring dimensions first. Even a 3/4 score may have an actionable next step.
+    needs = sorted(evaluated, key=lambda pair: (pair[1]['rating'], pair[0]))[:2]
+
+    strengths = []
+    for _, item in best:
+        rating, name = item['rating'], item['name']
+        level = ("상대적으로 높은 평가" if rating >= 3 else
+                 "기록에서 확인된 수행" if rating == 2 else "기초적인 활동 확인")
+        strengths.append(f"{name} ({rating}/4, {level}): {_visible_evidence(item)}. "
+                         f"{STRENGTH_INTERPRETATION.get(name, '평가 근거가 확인된 활동입니다.')}")
+
+    weaknesses = []
+    for _, item in needs:
+        name, rating = item['name'], item['rating']
+        prefix = ("현재 기록에서는 기본적인 참여·수행만 확인됩니다." if rating <= 1 else
+                  "구체적인 수행은 확인되지만 심화·재검증까지 충분히 확인된 것은 아닙니다." if rating == 2 else
+                  "상대적으로 높은 평가를 받았지만 후속 심화 여부는 별도 확인이 필요합니다." if rating == 3 else
+                  "현재 평가에서 높은 수준의 근거가 확인되었습니다. 다음 단계의 지속성은 별도로 확인할 수 있습니다.")
+        weaknesses.append(f"{name} ({rating}/4): {prefix} "
+                          f"확인된 근거: {_visible_evidence(item)}. "
+                          f"다음 단계: {IMPROVEMENT_NEXT.get(name, '후속 활동의 과정과 결과를 기록해 보세요.')}")
+
+    # N/E is a request for evidence, not a statement that the student lacks ability.
+    for item in pending[:max(0, 3-len(weaknesses))]:
+        name = item['name']
+        weaknesses.append(f"{name} (N/E): 현재 입력된 자료에서 채점에 필요한 근거를 연결하지 못했습니다. "
+                          f"{IMPROVEMENT_NEXT.get(name, '관련 활동 기록을 추가로 확인해 보세요.')}")
+
+    if not strengths:
+        strengths = ["검증된 역량 근거가 없어 개인별 강점을 판단할 수 없습니다. 입력 자료와 AI 근거 연결을 확인해 주세요."]
+    if not weaknesses:
+        weaknesses = ["이번 입력에서 확인된 수행을 토대로 다음 학년의 후속 활동과 검증 결과를 기록해 보세요."]
+    return strengths, weaknesses
+
+
 def build_analysis(raw, records, text, grade, sources, candidates):
     facts = clean_facts(raw.get("facts"), sources)
     if not facts:
@@ -285,13 +357,12 @@ def build_analysis(raw, records, text, grade, sources, candidates):
     majors, fits = majors_from_ai(raw.get("major_links"), facts, candidates)
     if not any(c["rating"] is not None for c in comps):
         raise ValueError("AI가 근거에 연결된 역량 평가를 반환하지 않았습니다.")
-    strong = [f"{c['name']}: {c['reason'] or c['evidence']}" for c in comps if c["rating"] is not None and c["rating"] >= 3][:3]
-    weak = [f"{c['name']}: 구체적 수행 수준을 판단할 근거가 부족합니다." for c in comps if c["rating"] is None]
+    strong, weak = strengths_and_weaknesses(comps)
     growth = [{"grade":g,"summary":f"{g}학년 기록에서 확인된 활동 근거 {sum(f['grade']==g for f in facts)}개. 활동 간 성장 여부는 별도 검토가 필요합니다."} for g in range(1,grade+1) if any(f["grade"]==g for f in facts)]
     return {"rubric_version":VERSION,"analysis_mode":"semantic_ai_python_scoring",
             "competencies":comps,"recommended_majors":majors,"major_fit":fits,
-            "strengths":strong or ["추가적인 근거 확인이 필요합니다."],
-            "weaknesses":weak or ["루브릭은 학생부에 기록된 행동만 평가하므로 외부 평가와 비교가 필요합니다."],
+            "strengths":strong,
+            "weaknesses":weak,
             "growth":growth,"facts_verified":len(facts),
             "assessment_notice":"AI 의미 해석과 Python 규칙의 참고 평가입니다. 공식 입학 평가·합격 확률이 아니며, N/E 지표는 종합점수에서 제외합니다."}
 
