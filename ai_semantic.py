@@ -1,7 +1,8 @@
-"""SEEDU:ON 3.1 — lightweight OpenRouter semantics with safe 429 diagnostics.
+"""SEEDU:ON 3.1 — minimal OpenRouter semantic extraction.
 
-One completion request, no automatic retries, no model-specific reasoning options.
-Logs safe error metadata (never API keys, prompts or student-record text).
+Model selection is explicitly controlled by OPENROUTER_MODEL in Render.
+No auto-discovery, forced reasoning parameters, or automatic model retries.
+Do not submit personal student data without an appropriate lawful basis/consent.
 """
 from __future__ import annotations
 
@@ -9,27 +10,24 @@ import json
 import logging
 import os
 import re
-import time
-import urllib.request
-from typing import Any
 
 from rubric_v2 import COMPETENCY_NAMES
 
 LOG = logging.getLogger('seedu.semantic')
-_model_id = None
-_model_checked_at = 0.0
 URL = 'https://openrouter.ai/api/v1'
 TAGS = set('learning career question method result validation revision collaboration leadership reflection planning interdisciplinary comparison application continuity concept'.split())
 
-SYSTEM = ("학생부 근거 추출기다. 아래 학생부에서 실제 수행·결과·개선 행동을 이해하고 "
-          "원문 그대로 짧게 인용해 JSON만 출력한다. 키워드만으로 우수하다고 판단하지 마라. "
-          "없는 근거를 만들지 마라. 반드시 한 줄 JSON: "
-          '{"f":[[0,"학생부에서 그대로 인용한 12자 이상 구절",["method","result"]]],'
-          '"c":[[2,[0]],[null,[]],[2,[0]],[null,[]],[null,[]]],"m":[[0],[],[]]}. '
-          'f는 최대 4개이며 각 항목은 [자료번호,원문인용,태그]. '
-          'c는 학업,진로,탐구,공동체,성장 순서로 정확히 5개 [0~4 또는 null, 근거번호배열]. '
-          '1은 참여,2는 구체적 수행,3은 방법과 결과 연결,4는 뚜렷한 검증과 실질적 개선. '
-          'm은 제시된 전공 후보 3개와 관련된 근거번호 배열. 설명문 없이 JSON만 반환.')
+SYSTEM = (
+    '학생부 근거 추출기다. 아래 학생부에서 실제 수행·결과·개선 행동을 이해하고 '
+    '원문 그대로 짧게 인용해 JSON만 출력한다. 키워드만으로 우수하다고 판단하지 마라. '
+    '없는 근거를 만들지 마라. 반드시 한 줄 JSON: '
+    '{"f":[[0,"학생부에서 그대로 인용한 12자 이상 구절",["method","result"]]],'
+    '"c":[[2,[0]],[null,[]],[2,[0]],[null,[]],[null,[]]],"m":[[0],[],[]]}. '
+    'f는 최대 4개이며 각 항목은 [자료번호,원문인용,태그]. '
+    'c는 학업,진로,탐구,공동체,성장 순서로 정확히 5개 [0~4 또는 null, 근거번호배열]. '
+    '1은 참여,2는 구체적 수행,3은 방법과 결과 연결,4는 뚜렷한 검증과 실질적 개선. '
+    'm은 제시된 전공 후보 3개와 관련된 근거번호 배열. 설명문 없이 JSON만 반환.'
+)
 
 
 def _payload(sources: list[dict], candidates: list[str]) -> str:
@@ -41,10 +39,10 @@ def _payload(sources: list[dict], candidates: list[str]) -> str:
     selected = []
     for i, item in enumerate(sources[:7]):
         raw = str(item.get('text') or '').strip()
-        excerpt = raw[:min(per_item, budget)]
-        if excerpt:
-            selected.append({'i': i, 't': excerpt})
-            budget -= len(excerpt)
+        value = raw[:min(per_item, budget)]
+        if value:
+            selected.append({'i': i, 't': value})
+            budget -= len(value)
         if budget <= 0:
             break
     return json.dumps({'s': selected, 'm': list(candidates[:3])}, ensure_ascii=False, separators=(',', ':'))
@@ -58,7 +56,10 @@ def _json_object(content: str) -> dict:
     start, end = body.find('{'), body.rfind('}')
     if start < 0 or end <= start:
         raise ValueError('완성된 JSON 객체 없음')
-    parsed = json.loads(body[start:end + 1])
+    try:
+        parsed = json.loads(body[start:end + 1])
+    except json.JSONDecodeError as exc:
+        raise ValueError(f'AI 응답 JSON 형식 오류 (position={exc.pos})') from exc
     if not isinstance(parsed, dict) or not isinstance(parsed.get('f'), list) or not isinstance(parsed.get('c'), list) or len(parsed['c']) != 5:
         raise ValueError('AI 출력 구조 오류')
     return parsed
@@ -86,124 +87,57 @@ def _normalize(parsed: dict, candidates: list[str]) -> dict:
     return {'facts': facts, 'competencies': competencies, 'major_links': major_links}
 
 
-def _pick_free_chat_model() -> str:
-    """Pick a listed free chat model; availability is not guaranteed."""
-    global _model_id, _model_checked_at
-    if _model_id and time.monotonic() - _model_checked_at < 3600:
-        return _model_id
-    try:
-        req = urllib.request.Request(URL + '/models', headers={'Accept': 'application/json', 'User-Agent': 'SEEDU-ON/3.1'})
-        with urllib.request.urlopen(req, timeout=5) as response:
-            models = json.load(response).get('data', [])
-        options = []
-        for entry in models:
-            ident = entry.get('id', '') if isinstance(entry, dict) else ''
-            if not ident.endswith(':free'):
-                continue
-            architecture = entry.get('architecture') or {}
-            if 'text' not in (architecture.get('input_modalities') or ['text']) or 'text' not in (architecture.get('output_modalities') or ['text']):
-                continue
-            name = ident.lower()
-            if any(x in name for x in ('reasoning', 'thinking', 'nemotron', 'qwq', 'deepseek-r1', 'rerank', 'embedding', 'audio', 'vision', 'vl-', '-vl', 'ocr')):
-                continue
-            parameters = entry.get('supported_parameters') or []
-            if parameters and 'max_tokens' not in parameters:
-                continue
-            score = 0
-            if 'instruct' in name or '-it:' in name:
-                score += 5
-            if 'gemma' in name:
-                score += 2
-            if 'chat' in name:
-                score += 2
-            if 'flash' in name:
-                score += 1
-            if '70b' in name or '120b' in name:
-                score -= 3
-            options.append((score, ident))
-        options.sort(key=lambda x: (-x[0], x[1]))
-        _model_id = options[0][1] if options else 'openrouter/free'
-    except Exception as exc:
-        LOG.info('SEEDU catalog discovery skipped: %s', type(exc).__name__)
-        _model_id = 'openrouter/free'
-    _model_checked_at = time.monotonic()
-    return _model_id
+def _configured_model() -> str:
+    """Use the exact model explicitly configured by the operator."""
+    model = os.getenv('OPENROUTER_MODEL', '').strip()
+    if not model:
+        raise ValueError('Render 환경변수 OPENROUTER_MODEL이 없습니다. OpenRouter 모델 ID를 설정해 주세요.')
+    return model
 
 
-def _safe_token(value: Any, limit: int = 160) -> str:
-    """Keep only unstructured metadata characters, never raw request/response text."""
-    if not isinstance(value, (str, int, float, bool)):
-        return '-'
-    text = str(value).strip()[:limit]
-    # The following is intended for machine-readable IDs/codes only.
-    return re.sub(r'[^a-zA-Z0-9_./:+ -]', '_', text) or '-'
-
-
-def _error_metadata(exc: Exception) -> dict:
-    """Extract API error diagnostics without logging student data or credentials."""
-    status = getattr(exc, 'status_code', None)
-    response = getattr(exc, 'response', None)
-    headers = getattr(response, 'headers', None) or {}
-    result: dict[str, Any] = {
-        'status': status,
-        'retry_after': _safe_token(headers.get('retry-after')) if headers.get('retry-after') is not None else '-',
-        'request_id': _safe_token(headers.get('x-request-id') or headers.get('x-openrouter-request-id')),
-        'error_code': '-',
-        'provider': '-',
-        'upstream_status': '-',
-        'limit_source': '-',
-    }
-    try:
-        body = response.json() if response is not None else None
-    except Exception:
-        body = None
+def _safe_error_info(exc: Exception) -> tuple[str, str, str]:
+    """Log diagnostics without student text, credentials, or raw provider responses."""
+    status = str(getattr(exc, 'status_code', '-') or '-')
+    code = '-'
+    source = '-'
+    body = getattr(exc, 'body', None)
     if isinstance(body, dict):
-        err = body.get('error', {})
-        if isinstance(err, dict):
-            result['error_code'] = _safe_token(err.get('code'))
-            metadata = err.get('metadata')
+        error = body.get('error', body)
+        if isinstance(error, dict):
+            code = str(error.get('code', '-') or '-')[:80]
+            metadata = error.get('metadata') or {}
             if isinstance(metadata, dict):
-                result['provider'] = _safe_token(metadata.get('provider_name') or metadata.get('provider'))
-                result['upstream_status'] = _safe_token(metadata.get('status_code') or metadata.get('upstream_status'))
-                result['limit_source'] = _safe_token(metadata.get('limit_source'))
-            if result['provider'] == '-':
-                result['provider'] = _safe_token(err.get('provider'))
-        elif isinstance(err, str):
-            # Do not log arbitrary message: it can contain untrusted or sensitive content.
-            pass
-    return result
+                source = str(metadata.get('limit_source', '-') or '-')[:100]
+    return status, code, source
 
 
 def request_semantics(sources, candidates, *, call_fn=None):
     payload = _payload(sources, candidates)
     if call_fn is not None:
         return _normalize(_json_object(call_fn(SYSTEM, payload)), candidates)
+
     key = os.getenv('OPENROUTER_API_KEY', '').strip()
     if not key:
         raise ValueError('OPENROUTER_API_KEY 미설정')
+    model = _configured_model()
+
     from openai import OpenAI
-    model = _pick_free_chat_model()
-    LOG.info('SEEDU semantic request: model=%s', _safe_token(model))
     try:
-        # No repeated requests, no model-specific reasoning controls.
+        # Exactly one completion call, no SDK retry, no hidden model selection.
         with OpenAI(base_url=URL, api_key=key, timeout=35.0, max_retries=0) as client:
-            r = client.chat.completions.create(
+            response = client.chat.completions.create(
                 model=model,
                 messages=[{'role': 'system', 'content': SYSTEM}, {'role': 'user', 'content': payload}],
                 max_tokens=1800,
                 temperature=0.0,
             )
     except Exception as exc:
-        info = _error_metadata(exc)
-        LOG.warning(
-            'SEEDU semantic API error: model=%s type=%s status=%s error_code=%s '
-            'provider=%s upstream_status=%s limit_source=%s retry_after=%s request_id=%s',
-            _safe_token(model), type(exc).__name__, info['status'], info['error_code'],
-            info['provider'], info['upstream_status'], info['limit_source'],
-            info['retry_after'], info['request_id'],
-        )
+        status, code, limit_source = _safe_error_info(exc)
+        LOG.warning('SEEDU semantic API error: model=%s type=%s status=%s error_code=%s limit_source=%s',
+                    model, type(exc).__name__, status, code, limit_source)
         raise
-    choices = getattr(r, 'choices', []) or []
+
+    choices = getattr(response, 'choices', []) or []
     if not choices:
         raise ValueError('AI 응답 선택지 없음')
     choice = choices[0]
@@ -213,5 +147,5 @@ def request_semantics(sources, candidates, *, call_fn=None):
     data = _normalize(_json_object(content), candidates)
     if not data['facts']:
         raise ValueError('AI가 근거 인용을 반환하지 않음')
-    LOG.info('SEEDU semantic success: model=%s facts=%d', _safe_token(getattr(r, 'model', 'unknown')), len(data['facts']))
+    LOG.info('SEEDU semantic success: model=%s facts=%d', model, len(data['facts']))
     return data
