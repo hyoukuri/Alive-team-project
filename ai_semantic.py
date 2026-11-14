@@ -28,43 +28,80 @@ ALIASES = {
     '지속':'continuity', '개념':'concept'
 }
 SYSTEM = (
-    '학생부 의미 분석기다. 제공한 s의 각 요소는 실제 학생부 원문 구절이고 n은 0부터 시작하는 고유번호다. '
-    '문장을 다시 쓰거나 점수를 매기지 말고, 실제 수행 행동을 보여주는 구절의 n과 의미 태그만 고르라. '
-    '단순 관심과 활동 참여에 결과·검증·개선 태그를 붙이지 마라. '
-    '정확히 이 형식의 JSON 객체 하나만 출력하라: '
-    '{"e":[[0,["learning","method"]],[2,["result","revision"]]],"m":[[0,2],[0],[]]}. '
-    'e는 최대 6개; 각 요소 [원문번호,태그배열]. m은 순서대로 전공 후보 3개의 관련 원문번호 배열. '
-    '원문번호는 입력 s의 n과 반드시 일치해야 한다. '
-    '태그는 learning,career,question,method,result,validation,revision,collaboration,leadership,reflection,planning,interdisciplinary,comparison,application,continuity,concept 중 선택. '
-    '근거가 부족하면 배열을 비워라. 설명·마크다운 없이 JSON만 출력하라.'
+    '너는 학생부의 실제 행동을 구분하는 근거 분류기다. 점수는 매기지 않는다. '
+    's 배열의 n은 원문 구절 번호다. 원문을 고쳐 쓰지 말고 번호만 선택하라. '
+    '5개 역량을 모두 살펴라: 학업(learning/concept/application), 진로(career/planning), '
+    '탐구(question/method/result/validation), 공동체(collaboration/leadership), '
+    '성장(reflection/revision/continuity). '
+    '특히 마지막의 공동체·성장 관련 구절도 빠뜨리지 말고, 기록에 실제 행동이 있는 경우 해당 n을 e에 포함하라. '
+    '단순 참여를 리더십으로, 개선 계획을 실천한 개선으로 과장하지 마라. '
+    '원문에 확인 가능한 수행 행동이 없는 역량은 비워도 된다. '
+    '정확히 JSON 객체 하나만 반환: '
+    '{"e":[[0,["learning","method"]],[2,["collaboration"]],[3,["reflection","revision"]]],"m":[[0],[0],[]]}. '
+    'e는 [n,영문태그배열]이며 최대 10개, n은 s에 실제 존재해야 한다. '
+    'm은 전공 후보 3개의 관련 근거 번호 배열이다. '
+    '태그는 learning,career,question,method,result,validation,revision,collaboration,leadership,'
+    'reflection,planning,interdisciplinary,comparison,application,continuity,concept 중에서만 선택. '
+    'e는 학업·진로·탐구만 반복하지 말고 공동체·성장 관련 수행도 검토하라. 설명 없이 JSON만 출력.'
 )
 
 
 def _source_spans(sources: list[dict]) -> list[dict]:
+    """Select beginning AND later evidence from each record, with source diversity.
+
+    This only selects text for AI review; no keyword triggers a competency score.
+    Each excerpt is an exact contiguous substring of its original source.
+    """
     if not sources:
         raise ValueError('학생부 기록 없음')
-    result = []
-    # Include the first meaningful sentences per record; maintain original source indexes.
-    for source_idx, item in enumerate(sources[:6]):
-        raw = str(item.get('text') or '').strip()
+    records=[]
+    for source_idx,item in enumerate(sources[:10]):
+        raw=str(item.get('text') or '').strip()
         if not raw:
             continue
-        sentences = [p.strip() for p in re.split(r'(?<=[.!?。])\s+|\n+', raw) if p.strip()]
-        if not sentences:
-            sentences = [raw]
-        seen = set()
-        for part in sentences:
-            if len(seen) >= 2:
-                break
-            quote = part[:220].strip()
-            if len(quote) < 12 or quote in seen:
-                continue
-            seen.add(quote)
-            result.append({'n':len(result), 'i':source_idx, 't':quote})
-        if not seen and len(raw) >= 12:
-            result.append({'n':len(result), 'i':source_idx, 't':raw[:220]})
-    if not result:
+        sentences=[part.strip() for part in re.split(r'(?<=[.!?。])\s+|\n+',raw) if part.strip()]
+        sentences=[part for part in sentences if len(part)>=12]
+        if not sentences and len(raw)>=12:
+            sentences=[raw]
+        if sentences:
+            records.append((source_idx,sentences))
+    if not records:
         raise ValueError('분석 가능한 학생부 구절이 없습니다')
+
+    # One opening and one concluding excerpt from each record, within 14 total.
+    # Later sentences frequently describe collaboration, feedback and improvement.
+    chosen=[]
+    for idx,parts in records:
+        chosen.append((idx,parts[0]))
+    for idx,parts in records:
+        if len(chosen)>=14:
+            break
+        if len(parts)>1:
+            chosen.append((idx,parts[-1]))
+    # Add a middle excerpt where space permits so multi-step actions aren't lost.
+    def category_priority(record):
+        idx, parts = record
+        category = str(sources[idx].get('source') or '').lower()
+        if any(x in category for x in ('행동', '종합')):
+            return 0
+        if any(x in category for x in ('자율', '자치', '동아리')):
+            return 1
+        return 2
+    for idx,parts in sorted(records,key=category_priority):
+        if len(chosen)>=14:
+            break
+        if len(parts)>2:
+            chosen.append((idx,parts[len(parts)//2]))
+
+    result=[]
+    seen=set()
+    for idx,part in chosen:
+        excerpt=part[:210].strip()
+        key=(idx,excerpt)
+        if len(excerpt)<12 or key in seen:
+            continue
+        seen.add(key)
+        result.append({'n':len(result),'i':idx,'t':excerpt})
     return result
 
 
@@ -185,7 +222,7 @@ def _normalize(parsed, candidates, spans, sources):
     selected=set()
     rows=_annotation_rows(parsed)
     invalid=0
-    for row in rows[:12]:
+    for row in rows[:16]:
         n,tags=_get_row(row)
         if n not in span_by_id or not tags:
             invalid+=1
@@ -203,7 +240,7 @@ def _normalize(parsed, candidates, spans, sources):
             continue
         selected.add(n)
         facts.append({'_n':n,'source_index':source_idx,'quote':quote,'tags':tags})
-    facts=facts[:6]
+    facts=facts[:10]
     ordered={f['_n']:i for i,f in enumerate(facts)}
     major_raw=parsed.get('m',parsed.get('majors',[]))
     majors=[]
