@@ -12,7 +12,7 @@ from collections import defaultdict
 from rubric_v2 import INDICATORS, MAJOR_FIT_RUBRIC, COMPETENCY_NAMES
 from rubric_engine import MAJORS, LEARNING_VALUE, _record_chunks
 
-VERSION = "rubric-3.0-semantic"
+VERSION = "rubric-3.2-behavior-anchors"
 TAGS = {"learning", "career", "question", "method", "result", "validation", "revision", "collaboration", "leadership", "reflection", "planning", "interdisciplinary", "comparison", "application", "continuity", "concept"}
 # action-level semantics from AI, not keyword matches
 HIGH_ACTIONS = {"validation", "revision"}
@@ -117,22 +117,52 @@ def competencies_from_ai(raw, facts):
         if not facts_for:
             rating = None
         elif rating is not None:
-            # Upper bounds are guardrails, not automated semantic grading.
-            cap = 2
-            if len(facts_for) >= 2 and "result" in tags and ("method" in tags or "application" in tags):
-                cap = 3
-            if (len(facts_for) >= 3 and "result" in tags and
-                "validation" in tags and "revision" in tags and
-                name in {"학업역량", "탐구역량", "성장가능성"}):
-                cap = 4
-            if name == "공동체역량":
-                cap = 2
-                if "collaboration" in tags and "leadership" in tags and "result" in tags:
-                    cap = 3
-                if cap == 3 and "revision" in tags and len(facts_for) >= 3:
-                    cap = 4
-            if name == "진로역량" and cap == 4 and "continuity" not in tags:
-                cap = 3
+            # Upper bounds are guardrails. Several tags spread across unrelated
+            # activities must not be merged into a fabricated causal process.
+            same_source = defaultdict(list)
+            for fact in facts_for:
+                same_source[(fact['grade'],fact['source_index'])].append(fact)
+            cap=1
+            for activity in same_source.values():
+                t=set().union(*(set(f['tags']) for f in activity))
+                n=len(activity)
+                activity_cap=1
+                if name == '학업역량':
+                    if t & {'learning','concept'} and t & {'application','method'}:
+                        activity_cap=2
+                    if activity_cap>=2 and 'result' in t and n>=2:
+                        activity_cap=3
+                    if activity_cap>=3 and {'validation','revision'} <= t and n>=3:
+                        activity_cap=4
+                elif name == '진로역량':
+                    if 'career' in t and t & {'planning','comparison','method','application'}:
+                        activity_cap=2
+                    if activity_cap>=2 and 'continuity' in t and t & {'method','application'} and n>=2:
+                        activity_cap=3
+                    if activity_cap>=3 and {'revision','result'} <= t and n>=3:
+                        activity_cap=4
+                elif name == '탐구역량':
+                    if 'method' in t and t & {'question','comparison','result'}:
+                        activity_cap=2
+                    if activity_cap>=2 and 'result' in t and t & {'comparison','validation','question'} and n>=2:
+                        activity_cap=3
+                    if activity_cap>=3 and {'validation','revision'} <= t and n>=3:
+                        activity_cap=4
+                elif name == '공동체역량':
+                    if 'collaboration' in t and t & {'method','result','leadership'}:
+                        activity_cap=2
+                    if activity_cap>=2 and {'leadership','result'} <= t and n>=2:
+                        activity_cap=3
+                    if activity_cap>=3 and {'revision','validation'} <= t and n>=3:
+                        activity_cap=4
+                elif name == '성장가능성':
+                    if 'reflection' in t and t & {'planning','revision'}:
+                        activity_cap=2
+                    if activity_cap>=2 and {'revision','result'} <= t and n>=2:
+                        activity_cap=3
+                    if activity_cap>=3 and {'validation','continuity'} <= t and n>=3:
+                        activity_cap=4
+                cap=max(cap,activity_cap)
             rating = min(rating, cap)
         evidence = (f"{facts_for[0]['grade']}학년 {facts_for[0]['source']}: {facts_for[0]['quote']}" if facts_for else
                     "근거를 확인하지 못했습니다. 평가를 보류합니다.")
@@ -167,25 +197,43 @@ REQUIREMENTS = {
 
 
 def _indicator_score(indicator, linked):
+    """Conservative per-activity evidence for the existing 16 indicators.
+
+    A tag from an unrelated source must not complete another source's method,
+    result or follow-up. No missing indicator becomes a zero.
+    """
     if not linked:
         return None
-    tags = set().union(*(set(x["tags"]) for x in linked))
     level2, level3, level4 = REQUIREMENTS[indicator]
-    if not tags.intersection(level2):
+    by_source = defaultdict(list)
+    for fact in linked:
+        by_source[(fact['grade'], fact['source_index'])].append(fact)
+    ratings=[]
+    for actions in by_source.values():
+        tags=set().union(*(set(f['tags']) for f in actions))
+        if not tags & level2:
+            continue
+        rating=1
+        if tags & {'method','application','collaboration','revision','result'}:
+            rating=2
+        if (rating>=2 and tags & level3 and 'result' in tags
+                and tags & {'method','application','comparison','question'}):
+            rating=3
+        if (rating>=3 and len(actions)>=3 and tags & level4
+                and 'validation' in tags and 'revision' in tags):
+            rating=4
+        ratings.append(rating)
+    if not ratings:
         return None
-    rating = 1
-    if len(linked) >= 1 and (tags & level2) and ("method" in tags or "application" in tags):
-        rating = 2
-    if len(linked) >= 2 and (tags & level3) and (tags & level2):
-        rating = 3
-    if (len(linked) >= 3 and (tags & level4) and
-        "result" in tags and ("validation" in tags or "revision" in tags)):
-        rating = 4
-    if indicator in {"활동 간 연계성", "관심 주제의 반복·유지", "관심의 발전 과정"}:
-        if len({(f["grade"], f["source_index"]) for f in linked}) < 2:
-            rating = min(rating, 2)
-    return rating
-
+    best=max(ratings)
+    # Activity linkage and sustained interest cannot be evidenced by one source.
+    if indicator in {'활동 간 연계성','관심 주제의 반복·유지','관심의 발전 과정'}:
+        if len(by_source)<2:
+            best=min(best,2)
+        # A repeated keyword is not demonstrated development.
+        if not any('continuity' in f['tags'] for f in linked):
+            best=min(best,1)
+    return best
 
 def majors_from_ai(raw_links, facts, candidates):
     links = {x.get("major"):x for x in raw_links if isinstance(x, dict) and x.get("major") in candidates} if isinstance(raw_links,list) else {}
