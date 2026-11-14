@@ -304,7 +304,7 @@ function renderDashboard(data) {
     analysisResults.append(box);
   });
 
-  const majors = card("추천 학과 TOP 3", "span-full");
+  const majors = card("전공 탐색 결과", "span-full");
   const majorList = el("div", "major-list");
 
   const categoryMax = {
@@ -315,10 +315,13 @@ function renderDashboard(data) {
     "융합 역량": 10
   };
 
+  if (!data.majors.length) {
+    majorList.append(el("p", "evidence", "이번 기록에서 전공별 평가 지표와 연결되는 근거가 충분히 확인되지 않았습니다. 억지로 학과 3개를 추천하지 않습니다. 진로활동이나 교과 탐구의 전공 관련 근거를 검토해 보세요."));
+  }
   data.majors.forEach((item, i) => {
     const box = el(
       "div",
-      i === 0 ? "major-item is-top" : "major-item"
+      i === 0 && item.scoreStatus === "complete" ? "major-item is-top" : "major-item"
     );
     const hasScore = item.fit !== null;
 
@@ -328,7 +331,7 @@ function renderDashboard(data) {
         "p",
         "major-rank",
         item.scoreStatus === "insufficient_evidence"
-          ? `탐색 후보 ${i + 1} · 종합 적합도 평가 보류`
+          ? `전공 탐색 후보 · 종합 적합도 평가 보류`
           : hasScore
             ? `${i + 1}위 · ${fitLevel(item.fit)}`
             : `${i + 1}위 · 평가 근거 부족`
@@ -348,37 +351,28 @@ function renderDashboard(data) {
           : `확인된 지표의 점수 합 ${item.partialScore.toFixed(1)}점 (전체 배점 100점 중 ${item.coverageWeight}점 분량만 평가 가능; 종합 적합도 평가 보류)`)
       );
 
-      Object.entries(categoryMax).forEach(
-        ([category, maximum]) => {
-          const value = Number(
-            item.categoryScores[category]
-          );
-
-          if (!Number.isFinite(value)) return;
-
-          const row = el("div", "score-item");
-          const heading = el("div", "score-heading");
-
-          heading.append(
-            el("strong", "", category),
-            el(
-              "span",
-              "score-number",
-              `${value.toFixed(1)} / ${maximum}`
-            )
-          );
-
+      Object.entries(categoryMax).forEach(([category, maximum]) => {
+        const coverage = Number(item.categoryCoverage?.[category] ?? 0);
+        const value = Number(item.categoryScores?.[category]);
+        const row = el("div", "score-item");
+        const heading = el("div", "score-heading");
+        heading.append(
+          el("strong", "", category),
+          el("span", "score-number",
+            coverage <= 0 || !Number.isFinite(value)
+              ? "N/E · 평가 보류"
+              : `${value.toFixed(1)} / ${maximum} · 평가 가능 배점 ${coverage}/${maximum}`)
+        );
+        row.append(heading);
+        if (coverage > 0 && Number.isFinite(value)) {
           const track = el("div", "bar-track");
           const fill = el("div", "bar-fill");
-
-          fill.style.width =
-            `${Math.max(0, Math.min(100, value / maximum * 100))}%`;
-
+          fill.style.width = `${Math.max(0, Math.min(100, value / maximum * 100))}%`;
           track.append(fill);
-          row.append(heading, track);
-          details.append(row);
+          row.append(track);
         }
-      );
+        details.append(row);
+      });
 
       if (item.evidence) {
         details.append(
@@ -404,7 +398,7 @@ function renderDashboard(data) {
     el(
       "p",
       "disclaimer",
-      "※ Python 규칙 기반 관련성 추천이며 일부 사례에서만 AI가 설명을 보완합니다. 객관적 적성 검사나 대학 공식 평가가 아니며, 미평가 지표가 있으면 종합점수를 보류합니다."
+      "※ AI가 학생부의 일부 수행 근거를 분류하고 Python이 루브릭으로 평가합니다. 종합 적합도는 16개 지표가 모두 평가된 경우에만 제시합니다. 미평가(N/E)는 0점이 아니며 대학 공식 평가나 합격 예측이 아닙니다."
     )
   );
 
@@ -570,6 +564,7 @@ function normalizeMajors(raw) {
       partialScore: evaluation?.partial_score != null ? Number(evaluation.partial_score) : null,
       coverageWeight: Number(evaluation?.coverage_weight ?? 0),
       categoryScores: evaluation?.category_scores ?? {},
+      categoryCoverage: evaluation?.category_coverage_weight ?? (Array.isArray(evaluation?.indicator_details) ? evaluation.indicator_details.reduce((acc,d) => { if (Number.isInteger(d.rating)) acc[d.category] = (acc[d.category] || 0) + Number(d.weight || 0); return acc; }, {}) : {}),
       evidence: asText(evaluation?.evidence, ""),
       improvement: asText(evaluation?.improvement, "")
     };
@@ -634,11 +629,6 @@ function normalizeAnalysis(raw, currentGrade) {
   const competencies = normalizeCompetencies(data);
   const majors = normalizeMajors(data);
 
-  if (majors.length === 0) {
-    throw new Error(
-      "추천 학과 정보가 없습니다. AI 분석을 다시 시도해 주세요."
-    );
-  }
 
   return {
     competencies,
