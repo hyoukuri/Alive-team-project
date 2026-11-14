@@ -1,4 +1,4 @@
-"""SEEDU:ON Rubric 3.1 - light AI, short input, success caching, 429 cooldown.
+"""SEEDU:ON Rubric 3.2 - light AI, short input, success caching, 429 cooldown.
 
 This version preserves the existing endpoints and scoring behavior while logging
 safe, actionable AI failure diagnostics. No API keys or student record text are logged.
@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 load_dotenv()
-app = FastAPI(title='SEEDU:ON Rubric 3.1 API')
+app = FastAPI(title='SEEDU:ON Rubric 3.2 API')
 app.add_middleware(
     CORSMiddleware,
     allow_origins=['https://alive-team-project.vercel.app'],
@@ -39,7 +39,7 @@ from semantic_engine import prepare, candidates_from_sources, build_analysis
 from ai_semantic import request_semantics
 
 LOG = logging.getLogger('seedu.main')
-VERSION = 'rubric-3.1-light-ai'
+VERSION = 'rubric-3.2-behavior-anchors'
 CACHE_TTL = 6 * 60 * 60
 CACHE_MAX = 128
 LIMIT_COOLDOWN = 120
@@ -69,7 +69,7 @@ class RoadmapRequest(BaseModel):
 
 @app.get('/')
 def home():
-    return {'message': 'SEEDU:ON Rubric 3.1 running', 'rubric_version': VERSION}
+    return {'message': 'SEEDU:ON Rubric 3.2 running', 'rubric_version': VERSION}
 
 
 @app.get('/health')
