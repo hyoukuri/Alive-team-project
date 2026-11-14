@@ -236,45 +236,70 @@ def _indicator_score(indicator, linked):
     return best
 
 def majors_from_ai(raw_links, facts, candidates):
-    links = {x.get("major"):x for x in raw_links if isinstance(x, dict) and x.get("major") in candidates} if isinstance(raw_links,list) else {}
-    ranked = []
+    """Only show a major with VERIFIED, scored major-linked evidence.
+
+    This is exploration, not a ranking: incomplete indicators cannot establish
+    a 100-point total, and an unlinked major must not fill a TOP-3 slot.
+    """
+    links = {x.get("major"): x for x in raw_links
+             if isinstance(x, dict) and x.get("major") in candidates} if isinstance(raw_links, list) else {}
+    scored = []
     for major in candidates:
         item = links.get(major, {})
         ids = _valid_ids(item.get("evidence_ids"), facts)
-        # semantic link must be explicit, otherwise no scored fit
-        ranked.append((major, ids, str(item.get("reason") or "")[:200]))
-    ranked.sort(key=lambda x:(-len(x[1]), candidates.index(x[0])))
-    selected = ranked[:3]
-    recommends, fits = [], []
-    for major, ids, reason in selected:
         linked = [facts[i] for i in ids]
-        categories = {cat:0.0 for cat in MAJOR_FIT_RUBRIC}
-        details, nested = [], {cat:{} for cat in MAJOR_FIT_RUBRIC}
+        if not linked:
+            continue
+        categories = {cat: 0.0 for cat in MAJOR_FIT_RUBRIC}
+        category_coverage = {cat: 0 for cat in MAJOR_FIT_RUBRIC}
+        details, nested = [], {cat: {} for cat in MAJOR_FIT_RUBRIC}
         coverage = 0
         for cat, indicator, weight in INDICATORS:
-            # Do not allow unrelated activities to inflate all 16 scores.
             rating = _indicator_score(indicator, linked)
             nested[cat][indicator] = rating
             if rating is not None:
                 coverage += weight
+                category_coverage[cat] += weight
                 categories[cat] += weight * rating / 4
-            details.append({"category":cat,"indicator":indicator,"weight":weight,"rating":rating,
-                            "status":"rated" if rating is not None else "insufficient_evidence",
-                            "quote":linked[0]["quote"] if rating is not None else "",
-                            "grade":linked[0]["grade"] if rating is not None else None,
-                            "source":linked[0]["source"] if rating is not None else "",
-                            "verified":rating is not None})
-        partial = round(sum(categories.values()),2)
-        explain = reason if ids else "입력 기록만으로 이 전공과의 연관성을 충분히 확인하지 못했습니다."
-        recommends.append({"major":major,"reason":explain,
-                           "learning_value":LEARNING_VALUE.get(major,"해당 전공의 교과 구조와 학습 내용을 탐색해 보세요."),
-                           "exploration":"활동의 이유·수행 과정·검증 결과를 기록해 보세요."})
-        fits.append({"major":major,"ratings":nested,"category_scores":{k:round(v,2) for k,v in categories.items()},
-                     "total_score":partial if coverage == 100 else None,"partial_score":partial,
-                     "coverage_weight":coverage,"score_status":"complete" if coverage==100 else "insufficient_evidence",
-                     "indicator_details":details,"evidence":explain,
-                     "improvement":"평가되지 않은 지표는 낮은 능력의 증거가 아니라 추가 검토가 필요한 항목입니다."})
-    return recommends, fits
+            matched = linked[0] if rating is not None else None
+            details.append({"category": cat, "indicator": indicator, "weight": weight,
+                            "rating": rating,
+                            "status": "rated" if rating is not None else "insufficient_evidence",
+                            "quote": matched["quote"] if matched else "",
+                            "grade": matched["grade"] if matched else None,
+                            "source": matched["source"] if matched else "",
+                            "verified": rating is not None})
+        # Meaningful link alone is not enough: at least one indicator must be
+        # evaluable. Otherwise it is NOT an evidence-backed major candidate.
+        if coverage <= 0:
+            continue
+        partial = round(sum(categories.values()), 2)
+        reason = str(item.get("reason") or "").strip()[:200]
+        evidence_quote = linked[0]["quote"][:180]
+        if not reason:
+            reason = f"학생부에 확인된 관련 활동: {evidence_quote}"
+        fit = {
+            "major": major, "ratings": nested,
+            "category_scores": {k: round(v, 2) for k, v in categories.items()},
+            "category_coverage_weight": category_coverage,
+            "total_score": partial if coverage == 100 else None,
+            "partial_score": partial, "coverage_weight": coverage,
+            "score_status": "complete" if coverage == 100 else "insufficient_evidence",
+            "indicator_details": details, "evidence": reason,
+            "improvement": "N/E 지표는 평가되지 않았으며 0점으로 계산하지 않습니다. 확인된 항목의 부분 점수만 제공합니다."
+        }
+        recommendation = {
+            "major": major, "reason": reason,
+            "learning_value": LEARNING_VALUE.get(major, "해당 전공의 교과 구조와 학습 내용을 탐색해 보세요."),
+            "exploration": "활동의 이유·수행 과정·검증 결과를 기록해 보세요.",
+            "status": "exploration_candidate" if coverage < 100 else "evaluated"
+        }
+        scored.append((coverage, len(ids), partial, major, recommendation, fit))
+    # Rank by availability of evaluable evidence, NEVER by an incomplete
+    # partial score alone. No fabricated fallback names to reach 3 slots.
+    scored.sort(key=lambda x: (-x[0], -x[1], -x[2], x[3]))
+    picked = scored[:3]
+    return [x[4] for x in picked], [x[5] for x in picked]
 
 
 # --- Evidence-grounded strengths and improvements (presentation only). ---
@@ -358,7 +383,23 @@ def build_analysis(raw, records, text, grade, sources, candidates):
     if not any(c["rating"] is not None for c in comps):
         raise ValueError("AI가 근거에 연결된 역량 평가를 반환하지 않았습니다.")
     strong, weak = strengths_and_weaknesses(comps)
-    growth = [{"grade":g,"summary":f"{g}학년 기록에서 확인된 활동 근거 {sum(f['grade']==g for f in facts)}개. 활동 간 성장 여부는 별도 검토가 필요합니다."} for g in range(1,grade+1) if any(f["grade"]==g for f in facts)]
+    # Describe observable activities rather than counting quotes or claiming
+    # year-to-year improvement without comparable evidence.
+    growth = []
+    grades_with_evidence = sorted({f["grade"] for f in facts})
+    for g in grades_with_evidence:
+        year_facts = [f for f in facts if f["grade"] == g]
+        chosen = []
+        for f in year_facts:
+            if f["quote"] not in chosen:
+                chosen.append(f["quote"])
+            if len(chosen) == 2:
+                break
+        observed = " / ".join(f'“{q[:95]}{"…" if len(q)>95 else ""}”' for q in chosen)
+        caveat = ("단일 학년 기록으로는 학년 간 성장 여부를 판단할 수 없습니다."
+                  if len(grades_with_evidence) == 1 else
+                  "학년 간 변화나 향상은 동일 주제의 후속 기록과 함께 검토해야 합니다.")
+        growth.append({"grade": g, "summary": f"확인된 활동: {observed}. {caveat}"})
     return {"rubric_version":VERSION,"analysis_mode":"semantic_ai_python_scoring",
             "competencies":comps,"recommended_majors":majors,"major_fit":fits,
             "strengths":strong,
