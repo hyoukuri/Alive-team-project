@@ -180,41 +180,105 @@ def _major_ids(raw, valid):
     return result
 
 
+def _grouped_tags(facts):
+    """Only combine semantic actions within one original activity/source.
+
+    The AI may label sentences separately; grouping by source_index allows
+    sentences from the same activity to form a process, but unrelated activities
+    cannot be stitched together to manufacture a high score.
+    """
+    groups = {}
+    for fact in facts:
+        idx = fact.get('source_index')
+        groups.setdefault(idx, []).append(fact)
+    return [(items, set().union(*(set(f['tags']) for f in items)))
+            for items in groups.values()]
+
+
+def _competency_level(name, tags, evidence_count):
+    """Rubric 3.2: evidence-grounded *candidate* level, not admission judgment.
+
+    All tiers require *related actions in the same activity*; a tag alone is not
+    evidence of verified improvement. AI tags are hypotheses subject to review.
+    """
+    if name == '학업역량':
+        if not tags & {'learning','concept','application','method'}:
+            return None
+        level = 1
+        if (tags & {'learning','concept'}) and (tags & {'method','application'}):
+            level = 2
+        if level >= 2 and 'result' in tags:
+            level = 3
+        if level >= 3 and {'validation','revision'} <= tags and evidence_count >= 3:
+            level = 4
+    elif name == '진로역량':
+        if not tags & {'career','continuity'}:
+            return None
+        level = 1
+        if 'career' in tags and tags & {'method','application','planning','comparison'}:
+            level = 2
+        if level >= 2 and tags & {'method','application'} and ('result' in tags or 'continuity' in tags):
+            level = 3
+        if level >= 3 and {'continuity','revision','result'} <= tags and evidence_count >= 3:
+            level = 4
+    elif name == '탐구역량':
+        if not tags & {'question','method','validation','comparison'}:
+            return None
+        level = 1
+        if 'method' in tags and tags & {'question','comparison','result'}:
+            level = 2
+        if level >= 2 and 'result' in tags and tags & {'question','comparison','validation'}:
+            level = 3
+        if level >= 3 and {'validation','revision'} <= tags and evidence_count >= 3:
+            level = 4
+    elif name == '공동체역량':
+        if not tags & {'collaboration','leadership'}:
+            return None
+        level = 1
+        if 'collaboration' in tags and tags & {'method','result','leadership'}:
+            level = 2
+        if level >= 2 and {'leadership','result'} <= tags:
+            level = 3
+        if level >= 3 and {'revision','validation'} <= tags and evidence_count >= 3:
+            level = 4
+    elif name == '성장가능성':
+        if not tags & {'reflection','revision','continuity','planning'}:
+            return None
+        level = 1
+        if 'reflection' in tags and ('revision' in tags or 'planning' in tags):
+            level = 2
+        if level >= 2 and 'revision' in tags and 'result' in tags:
+            level = 3
+        if level >= 3 and 'validation' in tags and 'continuity' in tags and evidence_count >= 3:
+            level = 4
+    else:
+        return None
+    return level
+
+
 def _competency_scores(facts):
-    # Conservative evidence-driven ceilings: annotation of a behavior is not
-    # proof of advanced independent achievement. No automatic 4 without
-    # multiple actual excerpts proving result, verification, and revision.
-    rules = (
-        {'learning','concept','application','method'},
-        {'career','continuity','planning'},
-        {'question','method','result','validation','comparison','revision'},
+    # Never turn an omitted competency into zero. Keep genuine N/E as null.
+    relevant = (
+        {'learning','concept','application'},
+        {'career','continuity'},
+        {'question','method','validation','comparison'},
         {'collaboration','leadership'},
         {'reflection','revision','planning','continuity'},
     )
-    competencies=[]
+    scored=[]
     for i,name in enumerate(COMPETENCY_NAMES):
-        evidence_ids=[k for k,f in enumerate(facts) if set(f['tags']) & rules[i]]
-        group=[facts[k] for k in evidence_ids]
-        tags=set().union(*(set(f['tags']) for f in group)) if group else set()
-        rating=None
-        if group:
-            rating=1
-            if (len(group)>=1 and
-                (('method' in tags or 'application' in tags) if i in (0,2) else
-                 ('career' in tags if i==1 else
-                  ('collaboration' in tags if i==3 else 'revision' in tags)))):
-                rating=2
-            if (len(group)>=2 and 'result' in tags and
-                (('method' in tags or 'application' in tags) if i in (0,2) else
-                 ('continuity' in tags if i==1 else
-                  ('leadership' in tags if i==3 else 'revision' in tags)))):
-                rating=3
-            if (i in (0,2,4) and len(group)>=3 and
-                {'result','validation','revision'} <= tags):
-                rating=4
-        competencies.append({'name':name,'rating':rating,'evidence_ids':evidence_ids})
-    return competencies
-
+        ids = [j for j,f in enumerate(facts) if set(f['tags']) & relevant[i]]
+        if not ids:
+            scored.append({'name':name,'rating':None,'evidence_ids':[]})
+            continue
+        # A process is assembled only within the same student-record source.
+        level=max((_competency_level(name, tags, len(items)) or 0)
+                  for items,tags in _grouped_tags([f for f in facts if f['source_index'] in {facts[k]['source_index'] for k in ids}]))
+        # If source grouping has incomplete tag evidence, retain a basic score
+        # rather than inventing a more advanced one.
+        rating=level if level else 1
+        scored.append({'name':name,'rating':rating,'evidence_ids':ids})
+    return scored
 
 def _normalize(parsed, candidates, spans, sources):
     span_by_id={s['n']:s for s in spans}
