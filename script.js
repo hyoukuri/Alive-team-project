@@ -231,6 +231,14 @@ function compactEvidence(value, maxLength = 110) {
   return conciseText(first, maxLength);
 }
 
+function seeduFeedbackSummary(value) {
+  let text = String(value ?? "").replace(/\s+/g, " ").trim();
+  // Remove raw source markers from short executive summary; preserve source in full evidence panels.
+  text = text.replace(/^\s*[^:：]{1,25}\s*\(\d+\/\d+\)\s*[:：]\s*/, "");
+  const first = text.split(/(?<=[.!?。])\s+|\s*\/\s*(?=[가-힣])/)[0].trim();
+  return conciseText(first || text, 78);
+}
+
 function renderDashboard(data) {
   analysisResults.replaceChildren();
 
@@ -294,37 +302,33 @@ function renderDashboard(data) {
     analysisResults.append(audit);
   }
 
-  // Compact overview: 5 ratings and one key observation per competency.
-  const competencies = card("5대 핵심 역량", "span-full seedu-compact-section");
-  const competencyLayout = el("div", "competency-layout seedu-competency-layout");
-  const validScores = data.competencies.every(item => item.score !== null && Number.isFinite(item.score));
-  if (validScores) {
-    const radar = radarChart(data.competencies);
-    radar.classList.add("seedu-compact-radar");
-    competencyLayout.append(radar);
-  } else {
-    competencyLayout.append(el("p", "muted", "일부 역량은 근거 미확인으로 점수를 표시하지 않습니다. 0점은 아닙니다."));
-  }
-
-  const scores = el("div", "score-grid seedu-compact-scores");
+  // Five concise scores; keep the detailed evidence available only on demand.
+  const competencies = card("5대 핵심 역량", "span-full seedu-competency-section");
+  competencies.append(el("p", "seedu-section-subtitle", "분석 근거가 확인된 항목만 점수를 표시합니다."));
+  const scores = el("div", "seedu-skill-list");
   data.competencies.forEach((item) => {
-    const box = el("div", "score-item seedu-compact-score");
-    const heading = el("div", "score-heading");
+    const box = el("div", "seedu-skill-item");
+    const heading = el("div", "seedu-skill-heading");
     heading.append(el("strong", "", item.name));
-    heading.append(el("span", "score-number", item.score === null ? "근거 미확인" : `${Math.round(item.score)}점`));
+    const rated = item.score !== null && Number.isFinite(item.score);
+    heading.append(el("span", rated ? "seedu-skill-value" : "seedu-skill-ne", rated ? `${Math.round(item.score)}점` : "근거 부족"));
     box.append(heading);
-    if (item.score !== null && Number.isFinite(item.score)) {
-      const track = el("div", "bar-track");
-      const fill = el("div", "bar-fill");
+    if (rated) {
+      const track = el("div", "seedu-track");
+      const fill = el("div", "seedu-fill");
       fill.style.width = `${Math.max(0, Math.min(100, item.score))}%`;
       track.append(fill);
       box.append(track);
     }
-    if (item.evidence) box.append(el("p", "evidence seedu-brief-evidence", compactEvidence(item.evidence, 88)));
+    if (item.evidence) {
+      const detail = el("details", "seedu-skill-detail");
+      detail.append(el("summary", "", "평가 근거 보기"));
+      detail.append(el("p", "", String(item.evidence)));
+      box.append(detail);
+    }
     scores.append(box);
   });
-  competencyLayout.append(scores);
-  competencies.append(competencyLayout);
+  competencies.append(scores);
   analysisResults.append(competencies);
 
   // Show only two key observations. No forced one-line clipping or horizontal overflow.
@@ -336,7 +340,7 @@ function renderDashboard(data) {
     const box = card(heading, `feedback-card ${className} seedu-brief-feedback`);
     const list = el("ul", "seedu-feedback-list");
     const items = values.filter(x => String(x || "").trim()).slice(0, 2);
-    (items.length ? items : [emptyText]).forEach(value => list.append(el("li", "", conciseText(value, 100))));
+    (items.length ? items : [emptyText]).forEach(value => list.append(el("li", "", seeduFeedbackSummary(value))));
     box.append(list);
     feedbackWrap.append(box);
   });
@@ -362,10 +366,10 @@ function renderDashboard(data) {
     const complete = item.scoreStatus === "complete" && item.fit !== null && coverage === 100;
     box.append(el("p", "major-rank", complete ? "종합 평가 완료" : "전공 탐색 후보 · 종합 평가 보류"));
     box.append(el("h3", "major-name", item.name));
-    box.append(el("p", "evidence seedu-major-reason", compactEvidence(item.reason, 125) || "전공 관련 활동의 근거를 추가 확인해야 합니다."));
+    box.append(el("p", "evidence seedu-major-reason", conciseText(item.reason, 80) || "전공 관련 활동의 근거를 추가 확인해야 합니다."));
 
     const details = el("details", "major-fit-details seedu-major-details");
-    details.append(el("summary", "", "세부 평가 확인"));
+    details.append(el("summary", "", "5개 평가 지표 · 근거 확인"));
     if (complete) {
       details.append(el("p", "seedu-evaluation-note", `종합 루브릭 점수 ${item.fit.toFixed(1)} / 100 · 합격 확률이 아닙니다.`));
     } else {
@@ -381,7 +385,7 @@ function renderDashboard(data) {
       const row = el("div", "score-item seedu-indicator-row");
       const heading = el("div", "score-heading");
       heading.append(el("strong", "", category));
-      heading.append(el("span", "score-number", rated ? `${value.toFixed(1)}점 · 근거 ${covered}/${maximum}` : "N/E · 근거 미확인"));
+      heading.append(el("span", "score-number", rated ? `${value.toFixed(1)}점 · 근거 ${covered}/${maximum}` : "근거 미확인"));
       row.append(heading);
       if (rated) {
         const track = el("div", "bar-track");
@@ -409,7 +413,17 @@ function renderDashboard(data) {
 
   analysisResults.append(majors);
 
-
+  // Make the next step reachable without scrolling past the full growth timeline.
+  const roadmapCta = el("div", "seedu-roadmap-cta span-full");
+  const ctaButton = el("button", "btn btn-primary", "희망 학과 선택하고 진로 로드맵 만들기 →");
+  ctaButton.type = "button";
+  ctaButton.addEventListener("click", () => {
+    setupMajorSelection(data.majors);
+    planResults.replaceChildren();
+    showPage(3);
+  });
+  roadmapCta.append(ctaButton);
+  analysisResults.append(roadmapCta);
 
   const growth = card("학년별 성장 과정", "span-full");
   const timeline = el("div", "growth-timeline");
@@ -671,94 +685,43 @@ function normalizeAnalysis(raw, currentGrade) {
    로드맵 데이터 형식 통일
 ========================================= */
 
+function roadmapList(value) {
+  if (Array.isArray(value)) return value;
+  if (!value) return [];
+  if (typeof value === "object") return Object.entries(value).map(([name, info]) =>
+    typeof info === "object" && info !== null ? { name, ...info } : { name, reason: String(info) }
+  );
+  return [value];
+}
+
 function normalizeRoadmap(raw) {
-  if (!raw || typeof raw !== "object") {
-    throw new Error("로드맵 응답이 비어 있습니다.");
+  if (!raw || typeof raw !== "object") throw new Error("로드맵 응답이 비어 있습니다.");
+  const data = raw.data ?? raw.result ?? raw.roadmap ?? raw;
+  const subjectRaw = data.recommended_subjects ?? data.subjects ?? data.electives ?? data.subject_recommendations ?? [];
+  const activityRaw = data.research_activities ?? data.activities ?? data.projects ?? data.exploration_activities ?? data.recommended_activities ?? [];
+  const gradeRaw = data.grade_plan ?? data.gradePlan ?? data.yearly_plan ?? data.timeline ?? [];
+  const subjects = roadmapList(subjectRaw).map((item) => typeof item === "string"
+    ? { name: item, reason: "" }
+    : { name: asText(item.subject ?? item.name ?? item.title, "추천 과목"), reason: asText(item.reason ?? item.description ?? item.detail, "") }
+  );
+  const activities = roadmapList(activityRaw).map((item, i) => typeof item === "string"
+    ? { title: item, description: "", steps: [], expectedResult: "" }
+    : { title: asText(item.title ?? item.name ?? item.activity, `탐구활동 ${i+1}`),
+        description: asText(item.description ?? item.detail ?? item.reason, ""),
+        steps: roadmapList(item.steps ?? item.process ?? item.actions ?? []).map(x => asText(x.name ?? x.action ?? x.step ?? x)),
+        expectedResult: asText(item.expected_result ?? item.expectedResult ?? item.output, "") }
+  );
+  const gradePlan = roadmapList(gradeRaw).map((item, i) => {
+    if (typeof item === "string") return {grade:i+1, goal:item, actions:[]};
+    return { grade:Number(item.grade) || Number(String(item.name ?? "").replace(/\D/g,"")) || i+1,
+      goal:asText(item.goal ?? item.title ?? item.summary ?? item.name,""),
+      actions:roadmapList(item.actions ?? item.tasks ?? item.steps ?? []).map(x => asText(x.name ?? x.action ?? x.task ?? x)) };
+  });
+  const advice = asText(data.advice ?? data.summary ?? data.final_advice ?? data.guidance, "");
+  if (!subjects.length && !activities.length && !gradePlan.length && !advice) {
+    throw new Error("서버에서 로드맵 내용이 전달되지 않았습니다. 백엔드 /roadmap 응답 형식을 확인해 주세요.");
   }
-
-  const data = raw.data ?? raw.result ?? raw;
-
-  const subjects = asArray(
-    data.recommended_subjects ??
-    data.subjects ??
-    data.electives ??
-    []
-  ).map((item) => {
-    if (typeof item === "string") {
-      return { name: item, reason: "" };
-    }
-
-    return {
-      name: asText(
-        item.subject ?? item.name ?? item.title,
-        "추천 과목"
-      ),
-      reason: asText(
-        item.reason ?? item.description,
-        ""
-      )
-    };
-  });
-
-  const activities = asArray(
-    data.research_activities ??
-    data.activities ??
-    data.projects ??
-    []
-  ).map((item, i) => {
-    if (typeof item === "string") {
-      return {
-        title: item,
-        description: "",
-        steps: [],
-        expectedResult: ""
-      };
-    }
-
-    return {
-      title: asText(
-        item.title ?? item.name,
-        `탐구활동 ${i + 1}`
-      ),
-      description: asText(
-        item.description ?? item.detail,
-        ""
-      ),
-      steps: asArray(
-        item.steps ?? item.process ?? []
-      ).map((step) => asText(step)),
-      expectedResult: asText(
-        item.expected_result ??
-        item.expectedResult ??
-        item.output,
-        ""
-      )
-    };
-  });
-
-  const gradePlan = asArray(
-    data.grade_plan ??
-    data.gradePlan ??
-    data.yearly_plan ??
-    []
-  ).map((item, i) => ({
-    grade: Number(item.grade) || i + 1,
-    goal: asText(item.goal ?? item.title, ""),
-    actions: asArray(
-      item.actions ?? item.tasks ?? []
-    ).map((action) => asText(action))
-  }));
-
-  return {
-    major: asText(data.major ?? data.target_major, ""),
-    subjects,
-    activities,
-    gradePlan,
-    advice: asText(
-      data.advice ?? data.summary ?? data.final_advice,
-      ""
-    )
-  };
+  return {major:asText(data.major ?? data.target_major,""),subjects,activities,gradePlan,advice};
 }
 
 /* =========================================
@@ -896,6 +859,7 @@ function renderRoadmap(data) {
   // 3. 학년별 성장 로드맵
   const gradeCard = card("학년별 성장 로드맵");
 
+  if (!data.gradePlan.length) gradeCard.append(el("p", "muted", "학년별 계획 정보는 응답에 포함되지 않았습니다."));
   data.gradePlan.forEach((item) => {
     const box = el("div", "grade-plan-item");
 
@@ -1034,6 +998,7 @@ function setupMajorSelection(majors) {
   if (!container) return;
 
   container.replaceChildren();
+  selectedMajor = "";
 
   majors.forEach((major, index) => {
     const button = el(
@@ -1072,53 +1037,43 @@ function setupMajorSelection(majors) {
    AI 로드맵 생성
 ========================================= */
 
-async function runRoadmap() {
-  const majorInput =
-    $("custom-major") ||
-    $("major-input");
+function roadmapStatus(message, isError = false) {
+  planResults.replaceChildren();
+  const box = el("section", `result-card seedu-roadmap-status${isError ? " seedu-roadmap-error" : ""}`);
+  box.setAttribute("role", "status");
+  box.append(el("h2", "card-heading", isError ? "로드맵을 표시하지 못했어요" : "진로 로드맵 생성 중"));
+  box.append(el("p", "", message));
+  if (isError) {
+    const retry = el("button", "btn btn-primary", "다시 생성하기");
+    retry.type = "button";
+    retry.addEventListener("click", runRoadmap);
+    box.append(retry);
+  }
+  planResults.append(box);
+}
 
+async function runRoadmap() {
+  const majorInput = $("custom-major") || $("major-input");
   const customMajor = majorInput?.value.trim() || "";
   const major = customMajor || selectedMajor;
-
-  if (!major) {
-    alert("희망 학과를 선택하거나 직접 입력해 주세요.");
-    return;
-  }
-
-  const button =
-    $("roadmap-button") ||
-    $("generate-roadmap");
-
+  if (!major) { alert("희망 학과를 선택하거나 직접 입력해 주세요."); majorInput?.focus(); return; }
+  const button = $("roadmap-button") || $("generate-roadmap");
   setLoading(button, true, "맞춤 로드맵 생성 중...");
-
+  roadmapStatus(`${major}에 맞는 선택과목과 탐구활동을 확인하고 있습니다.`);
   try {
     const records = collectRecords();
-
-    const text = Object.entries(records)
-      .map(([grade, content]) =>
-        `[${grade}학년]\n${content}`
-      )
-      .join("\n\n");
-
+    const text = Object.entries(records).filter(([,v]) => v).map(([g,v]) => `[${g}학년]\n${v}`).join("\n\n");
+    if (!text.trim()) throw new Error("학생부 원문이 없습니다. 입력 화면에서 세특을 확인한 뒤 다시 분석해 주세요.");
     const response = await apiRequest("/roadmap", {
-      grade: Number(gradeSelect.value),
-      major,
-      records,
-      text,
-      analysis: latestAnalysis
+      grade:Number(gradeSelect.value), major, records, text, analysis:latestAnalysis
     });
-
     const data = normalizeRoadmap(response);
-
-    renderRoadmap(data);
-    showPage(3);
-
+    renderRoadmap({...data, major:data.major || major});
+    planResults.scrollIntoView({behavior:"smooth",block:"start"});
   } catch (error) {
     console.error("로드맵 생성 오류:", error);
-    alert(error.message);
-  } finally {
-    setLoading(button, false);
-  }
+    roadmapStatus(error.message || "로드맵 서버 응답을 확인하지 못했습니다.", true);
+  } finally { setLoading(button, false); }
 }
 
 /* =========================================
@@ -1174,6 +1129,7 @@ if (goRoadmapButton) {
       return;
     }
     setupMajorSelection(latestAnalysis.majors);
+    planResults.replaceChildren();
     showPage(3);
   });
 }
