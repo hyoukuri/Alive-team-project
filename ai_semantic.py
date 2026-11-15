@@ -38,7 +38,7 @@ SYSTEM = (
     '정확히 JSON 객체 하나만 반환: '
     '{"e":[[0,["learning","method"]],[2,["collaboration"]],[3,["reflection","revision"]]],"m":[[0],[0],[]]}. '
     'e는 [n,영문태그배열]이며 n은 s에 실제 존재해야 한다. 각 구절을 모두 검토하되 수행 근거가 없는 구절은 제외하라. '
-    'm은 전공 후보 3개의 관련 근거 번호 배열이다. 전공과 직접 관련된 탐구·학습·적용 근거만 넣고, 인사·성실함·일반적인 생활 태도 등 무관한 구절을 전공 근거로 연결하지 마라. '
+    'm은 입력으로 제공된 전공 후보 전체의 관련 근거 번호 배열이다. 전공과 직접 관련된 탐구·학습·적용 근거만 넣고, 인사·성실함·일반적인 생활 태도 등 무관한 구절을 전공 근거로 연결하지 마라. '
     '태그는 learning,career,question,method,result,validation,revision,collaboration,leadership,'
     'reflection,planning,interdisciplinary,comparison,application,continuity,concept 중에서만 선택. '
     'e는 학업·진로·탐구만 반복하지 말고 공동체·성장 관련 수행도 검토하라. 설명 없이 JSON만 출력.'
@@ -66,7 +66,7 @@ def _source_spans(sources: list[dict]) -> list[dict]:
 
 def _payload(sources, candidates):
     spans = _source_spans(sources)
-    return json.dumps({'s':spans, 'm':list(candidates[:3])},ensure_ascii=False,separators=(',',':')),spans
+    return json.dumps({'s':spans, 'm':list(candidates)},ensure_ascii=False,separators=(',',':')),spans
 
 
 def _json_object(content: Any) -> dict:
@@ -266,7 +266,7 @@ def _normalize(parsed, candidates, spans, sources):
     ordered={f['_n']:i for i,f in enumerate(facts)}
     major_raw=parsed.get('m',parsed.get('majors',[]))
     majors=[]
-    for i,name in enumerate(candidates[:3]):
+    for i,name in enumerate(candidates):
         candidates_raw=major_raw[i] if isinstance(major_raw,list) and i<len(major_raw) else []
         if isinstance(candidates_raw,dict):
             candidates_raw=candidates_raw.get('ids',candidates_raw.get('evidence_ids',[]))
