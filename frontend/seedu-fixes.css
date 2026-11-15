@@ -176,3 +176,15 @@
 #analysis-results .seedu-indicator-quote{color:#293e54}
 #analysis-results .seedu-rubric-provenance{font-size:.78rem;color:#64748b;line-height:1.65;margin:16px 0 8px;overflow-wrap:anywhere}
 #analysis-results .seedu-major-details>summary{font-size:.92rem;padding:10px 0}
+
+/* 전공 탐색: 부분 평가 범위와 점수의 의미를 명확히 구분 */
+#analysis-results .seedu-major-evaluation-scope {
+  margin: 10px 0 12px; padding: 12px 13px;
+  background: rgba(234,238,244,.55); border-radius: 10px;
+  border: 1px solid rgba(126,145,165,.16); overflow-wrap: anywhere;
+}
+#analysis-results .seedu-major-evaluation-scope p { margin: 0 0 7px; line-height: 1.6; }
+#analysis-results .seedu-major-evaluation-scope p:last-child { margin-bottom: 0; }
+#analysis-results .seedu-major-evaluation-scope .seedu-evaluation-note { font-weight: 750; font-size: .94rem; color: #283c56; }
+#analysis-results .seedu-major-evaluation-scope .muted { font-size: .82rem; }
+#analysis-results .seedu-major-evaluation-caution { font-size: .77rem; color: #586579; }

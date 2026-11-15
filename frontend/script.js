@@ -584,19 +584,29 @@ function renderDashboard(data) {
     const box = el("div", "major-item seedu-major-compact");
     const coverage = Math.max(0, Math.min(100, Number(item.coverageWeight) || 0));
     const complete = item.scoreStatus === "complete" && item.fit !== null && coverage === 100;
-    box.append(el("p", "major-rank", complete ? "종합 평가 완료" : "전공 탐색 후보 · 종합 평가 보류"));
+    box.append(el("p", "major-rank", "현재 기록 기반 전공 탐색 결과"));
     box.append(el("h3", "major-name", item.name));
+
+    // Preserve N/E in the underlying rubric. Show the evaluated scope instead
+    // of labeling every partial student record as an overall evaluation failure.
+    const scope = el("div", "seedu-major-evaluation-scope");
+    if (complete) {
+      scope.append(el("p", "seedu-evaluation-note", `전체 지표 평가 점수: ${item.fit.toFixed(1)}/100점`));
+      scope.append(el("p", "muted", "16개 지표 모두 평가 가능한 기록이 확인되었습니다. 이 점수는 합격 확률이 아닙니다."));
+    } else if (coverage > 0 && Number.isFinite(item.partialScore)) {
+      const part = item.partialScore.toFixed(1).replace(/\.0$/, "");
+      scope.append(el("p", "seedu-evaluation-note", `확인된 부분 평가 점수: ${part}/${coverage}점`));
+      scope.append(el("p", "muted", `전체 100점 배점 중 ${coverage}점에 해당하는 지표를 평가했습니다. 나머지 ${100 - coverage}점 배점은 근거가 부족해 미평가 상태입니다.`));
+    } else {
+      scope.append(el("p", "seedu-evaluation-note", "현재 평가 가능한 세부 지표가 확인되지 않았습니다."));
+      scope.append(el("p", "muted", "학생부 원문과 전공 관련 활동을 추가로 확인한 뒤 평가할 수 있습니다."));
+    }
+    scope.append(el("p", "seedu-evaluation-caution", "전공 적합도 확정 점수나 합격 확률이 아닙니다. 근거 미확인(N/E)은 0점으로 계산하지 않습니다."));
+    box.append(scope);
     appendEvidencePreview(box, item.reason, "추천 근거 원문 보기");
 
     const details = el("details", "major-fit-details seedu-major-details");
     details.append(el("summary", "", "점수 산정 이유 보기"));
-    if (complete) {
-      details.append(el("p", "seedu-evaluation-note", `종합 루브릭 점수 ${item.fit.toFixed(1)} / 100 · 합격 확률이 아닙니다.`));
-    } else {
-      const part = Number.isFinite(item.partialScore) ? item.partialScore.toFixed(1) : "—";
-      details.append(el("p", "seedu-evaluation-note", `종합 평가 보류 · 평가 가능한 배점 ${coverage}/100 · 확인된 부분 점수 ${part}/${coverage || '—'}`));
-      details.append(el("p", "muted", "부분 점수는 전공 적합도나 학과 순위가 아닙니다. N/E는 0점이 아닙니다."));
-    }
     // Rubric 3.2: self-designed 16-indicator anchors, informed by educational research.
   const indicatorFocus = {
     "전공 주제 관련성":"전공 지식·질문과 실제 활동의 연결",
@@ -693,7 +703,7 @@ function renderDashboard(data) {
     el(
       "p",
       "disclaimer",
-      "※ 근거가 부족한 학과는 종합 평가를 보류합니다. 부분 점수는 적합도 순위나 합격 확률이 아니며, N/E는 0점이 아닙니다."
+      "※ 현재 입력된 학생부를 바탕으로 한 전공 탐색 결과입니다. 평가하지 못한 지표는 0점으로 간주하지 않으며, 부분 점수는 학과 순위나 합격 확률을 의미하지 않습니다."
     )
   );
 
