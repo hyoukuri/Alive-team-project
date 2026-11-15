@@ -328,7 +328,13 @@ function renderDashboard(data) {
     }
     scores.append(box);
   });
-  competencies.append(scores);
+  // 레이더 그래프를 삭제하지 않는다. 원본 canvas 렌더러와 간결한 점수 카드를 함께 제공한다.
+  const visual = el("div", "seedu-competency-visual");
+  const radarPanel = el("div", "seedu-radar-panel");
+  radarPanel.append(radarChart(data.competencies));
+  radarPanel.append(el("p", "seedu-radar-caption", "역량별 점수 분포 · 근거 미확인 항목은 0점으로 판단하지 않습니다."));
+  visual.append(radarPanel, scores);
+  competencies.append(visual);
   analysisResults.append(competencies);
 
   // Show only two key observations. No forced one-line clipping or horizontal overflow.
