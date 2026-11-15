@@ -49,6 +49,7 @@ def analyze_all_sources(sources: list[dict], records, text, grade, candidates,
         raise ValueError('전체 세특 분석에 필요한 구간 수가 서버 설정 한도를 초과했습니다.')
 
     merged_facts = []
+    per_source_processed = [0] * len(sources)
     major_fact_ids = defaultdict(list)
     processed = 0
     expected_chars = sum(len(str(s.get('text') or '')) for s in sources)
@@ -73,11 +74,13 @@ def analyze_all_sources(sources: list[dict], records, text, grade, candidates,
             for local_id in link.get('evidence_ids', []):
                 if isinstance(local_id, int) and not isinstance(local_id, bool) and 0 <= local_id < len(local_facts):
                     major_fact_ids[name].append(offset + local_id)
+        for part in batch:
+            per_source_processed[part['_original_index']] += len(part['text'])
         processed += sum(len(part['text']) for part in batch)
         LOG.info('SEEDU full analysis progress: batch=%d/%d chars=%d/%d',
                  batch_index + 1, len(batches), processed, expected_chars)
 
-    if processed != expected_chars:
+    if processed != expected_chars or any(per_source_processed[i] != len(str(source.get('text') or '')) for i, source in enumerate(sources)):
         raise RuntimeError('전체 원문 구간 처리량 검증 실패')
     if not merged_facts:
         raise ValueError('전체 기록을 검토했지만 검증 가능한 수행 근거가 없습니다.')
@@ -89,7 +92,21 @@ def analyze_all_sources(sources: list[dict], records, text, grade, candidates,
              for name in candidates[:3]]
     raw = {'facts': merged_facts, 'competencies': competencies, 'major_links': links}
     result = build_analysis(raw, records, text, grade, sources, candidates)
+    facts_by_source = defaultdict(int)
+    for fact in merged_facts:
+        facts_by_source[fact['source_index']] += 1
+    activity_coverage = [{
+        'grade': source['grade'], 'source': source['source'],
+        'input_chars': len(str(source.get('text') or '')),
+        'processed_chars': per_source_processed[i],
+        'verified_facts': facts_by_source[i],
+        'status': 'evidence_found' if facts_by_source[i] else 'reviewed_no_verifiable_evidence',
+    } for i, source in enumerate(sources)]
     result['input_coverage'] = {
+        'activities_received': len(sources),
+        'activities_processed': sum(x['processed_chars'] == x['input_chars'] for x in activity_coverage),
+        'activities_with_verified_facts': sum(bool(x['verified_facts']) for x in activity_coverage),
+        'activities': activity_coverage,
         'status': 'complete', 'input_chars': expected_chars,
         'processed_chars': processed, 'batches': len(batches),
         'grades_received': sorted({int(s['grade']) for s in sources if str(s.get('text') or '').strip()}),
