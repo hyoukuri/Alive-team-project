@@ -249,6 +249,22 @@ function renderDashboard(data) {
 
   analysisResults.append(title);
 
+  // Full-input audit: successful transmission is not the same as evidence found.
+  if (data.inputCoverage?.activities) {
+    const coverage = data.inputCoverage;
+    const audit = card("세특 과목별 분석 범위", "span-full");
+    audit.append(el("p", "evidence", `입력 활동 ${coverage.activitiesReceived}개 · 원문 처리 ${coverage.activitiesProcessed}개 · 검증된 근거가 발견된 활동 ${coverage.activitiesWithVerifiedFacts}개`));
+    const list = el("ul", "");
+    coverage.activities.forEach((item) => {
+      const isDone = item.inputChars === item.processedChars;
+      const label = `${item.grade}학년 ${item.source}: ${isDone ? "원문 처리 완료" : "원문 미완료"} (${item.inputChars}자), 검증 근거 ${item.verifiedFacts}건${item.verifiedFacts === 0 ? " · 평가 근거 미확인" : ""}`;
+      list.append(el("li", "evidence", label));
+    });
+    audit.append(list);
+    audit.append(el("p", "muted", "원문 처리 완료는 AI에 텍스트가 전달되었다는 뜻입니다. 검증 근거 0건은 활동이 누락됐다는 뜻이 아니라, 해당 활동에서 확정 가능한 근거를 추출하지 못했다는 뜻입니다."));
+    analysisResults.append(audit);
+  }
+
   const competencies = card("5대 핵심 역량", "span-full");
   const competencyLayout = el("div", "competency-layout");
   if (data.competencies.every(item => item.score !== null)) {
@@ -634,6 +650,17 @@ function normalizeAnalysis(raw, currentGrade) {
     competencies,
     majors,
     aiReview: data.ai_review ?? {used:false,status:"skipped"},
+    inputCoverage: data.input_coverage ? {
+      activitiesReceived: Number(data.input_coverage.activities_received ?? 0),
+      activitiesProcessed: Number(data.input_coverage.activities_processed ?? 0),
+      activitiesWithVerifiedFacts: Number(data.input_coverage.activities_with_verified_facts ?? 0),
+      activities: asArray(data.input_coverage.activities).map(item => ({
+        grade: item.grade, source: asText(item.source),
+        inputChars: Number(item.input_chars ?? 0),
+        processedChars: Number(item.processed_chars ?? 0),
+        verifiedFacts: Number(item.verified_facts ?? 0)
+      }))
+    } : null,
     growth: normalizeGrowth(data, currentGrade),
     strengths: asArray(
       data.strengths ?? data.strong_points ?? []
