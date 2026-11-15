@@ -230,37 +230,49 @@ function evidenceSourceLabel(source, quote) {
 }
 // 화면에서 원문을 중간에 자르지 않고, 핵심 수행 행위를 완결된 문장으로 요약합니다.
 // 원문은 세부 보기에서 별도로 확인할 수 있습니다.
-function evidenceSummary(value) {
-  const raw = canonicalEvidenceProvenance(value);
-  if (!raw) return '이 항목에서 확인된 활동 근거가 없습니다.';
-  // Do not display fragments truncated upstream or in older saved records.
-  const cleaned = raw.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
-  const subjectMatch = cleaned.match(/(?:과목:\s*|\d학년\s+)((?:공통|통합|과학탐구|한국사|정보|체육|음악|미술|기술|가정)[가-힣A-Za-z0-9· ]{0,22})\s*[:：—]/);
-  const categoryMatch = cleaned.match(/^(행동특성 및 종합의견|자율[·ㆍ]자치활동|동아리활동|진로활동)\s*[:：]/);
-  const prefix = categoryMatch ? `${categoryMatch[1]}: ` : (subjectMatch ? `${subjectMatch[1].trim()}: ` : '');
-  const body = cleaned.replace(/^(?:확인된 활동|추천 근거)\s*[:：]\s*/, '').trim();
-  const action = /(조사|비교|분석|실험|측정|제작|발표|작성|탐구|검증|토론|해석|설계|정리|제안|수집|평가|활용|관찰|설명)/;
-  // A sentence with a single ellipsis character is ALSO incomplete.
-  const sentences = body.split(/(?<=[.!?。])\s+/).map(x => x.trim());
-  const full = sentences.find(x => x.length >= 18 && x.length <= 155 && /[.!?。]$/.test(x) && !/(?:…|\.\.\.)/.test(x) && action.test(x));
-  if (full) {
-    const short = full.replace(/^(?:.*?\d학년\s+)?(?:과목:\s*)?[^:：]{0,35}[:：]\s*/, '').replace(/^['"]/, '').trim();
-    if (short.length >= 15 && short.length <= 155 && !/(?:…|\.\.\.)/.test(short)) return prefix + short;
+// Evidence can contain several subject records joined by " / ".
+// Never take a label from one record and a sentence from another.
+function splitEvidenceEntries(value) {
+  return String(value ?? '').split(/\s+\/\s+(?=(?:(?:[123]학년\s+)?(?:과목:\s*)?(?:공통|통합|과학탐구|한국사|정보|체육|음악|미술|기술|가정|행동특성|자율|동아리|진로)|외\s+\d+개\s+활동))/)
+    .map(x => x.trim()).filter(Boolean);
+}
+function evidenceEntryParts(value) {
+  const raw = canonicalEvidenceProvenance(value).replace(/\s+/g, ' ').trim();
+  // These patterns identify the provenance of the SAME evidence item.
+  const category = raw.match(/^(?:(?:[123]학년\s+)?(?:과목:\s*)?)?(행동특성 및 종합의견|자율[·ㆍ]자치활동|동아리활동|진로활동)\s*[:：]\s*(.*)$/);
+  if (category) return { label: category[1], body: category[2] };
+  const subject = raw.match(/^(?:(?:[123]학년\s+)?(?:과목:\s*)?)([^:：]{2,45})\s*[:：]\s*(.*)$/);
+  if (subject && !/^(?:확인된 활동|추천 근거|보완 방향|평가 이유|강점|학업역량|탐구역량|진로역량|공동체역량|성장가능성)$/.test(subject[1])) {
+    return { label: subject[1].trim(), body: subject[2] };
   }
-  // Grounded topic/action summaries. Never complete a severed quotation by guessing.
+  return { label: '', body: raw };
+}
+function evidenceSummary(value) {
+  const entries = splitEvidenceEntries(value).filter(x => !/^외\s+\d+개\s+활동/.test(x));
+  if (!entries.length) return '이 항목에서 확인된 활동 근거가 없습니다.';
+  // A summary must be drawn from one record, including its own source label.
+  const { label, body: originalBody } = evidenceEntryParts(entries[0]);
+  const prefix = label ? `${label}: ` : '';
+  const body = originalBody.replace(/[“”]/g, '"').replace(/[‘’]/g, "'")
+    .replace(/^(?:확인된 활동|추천 근거)\s*[:：]\s*/, '').trim();
+  const action = /(조사|비교|분석|실험|측정|제작|발표|작성|탐구|검증|토론|해석|설계|정리|제안|수집|평가|활용|관찰|설명)/;
+  const sentences = body.split(/(?<=[.!?。])\s+/).map(x => x.trim());
+  const complete = sentences.find(x => x.length >= 18 && /[.!?。]$/.test(x) && !/(?:…|\.\.\.)/.test(x) && action.test(x));
+  if (complete && complete.length <= 220) return prefix + complete;
+  // The following topic descriptions are used only when the SAME entry contains the topic.
   const topics = [
-    [/산성화|산성비|중화 방법/, ['산성비와 토양·호수의 중화 방법', '조사·탐구']],
-    [/중화열|혼합용액|중화점/, ['중화 반응에서 용액의 변화', '측정·분석']],
-    [/진원지|원의 방정식|지진/, ['원의 방정식을 활용한 지진 진원지 탐색', '수학적 탐구']],
-    [/탱자나무|로트레크|닉부이/, ['문학 작품의 표현 방식과 작가의 의도', '비교·분석']],
-    [/기억에 남는 경험|영어 글쓰기/, ['경험을 소재로 한 영어 글쓰기', '작문']],
-    [/이산화탄소|환기|공기 질/, ['교실 환경과 공기 질', '관찰·분석']],
+    [/산성화|산성비|중화 방법/, '산성비와 토양·호수의 중화 방법을 조사·탐구한 활동이 확인됩니다.'],
+    [/중화열|혼합용액|중화점/, '중화 반응에서 용액의 변화를 측정·분석한 활동이 확인됩니다.'],
+    [/진원지|원의 방정식|지진/, '원의 방정식을 활용한 지진 진원지 탐색 활동이 확인됩니다.'],
+    [/탱자나무|로트레크|닉부이/, '문학 작품의 표현 방식과 작가의 의도를 비교·분석한 활동이 확인됩니다.'],
+    [/기억에 남는 경험|영어 글쓰기/, '경험을 소재로 한 영어 글쓰기 활동이 확인됩니다.'],
+    [/이산화탄소|환기|공기 질/, '교실 환경과 공기 질을 관찰·분석한 활동이 확인됩니다.'],
   ];
   const matched = topics.find(([pattern]) => pattern.test(body));
-  if (matched) return `${prefix}${matched[1][0]}에 관한 ${matched[1][1]} 활동이 확인됩니다.`;
-  const title = body.match(/["']([^"']{4,55})["']/)?.[1];
+  if (matched) return prefix + matched[1];
+  if (complete) return prefix + complete; // show complete evidence, never cut mid-sentence
+  const title = body.match(/["']([^"']{4,80})["']/)?.[1];
   if (title && !/(?:…|\.\.\.)/.test(title)) return `${prefix}「${title}」을 주제로 한 활동이 확인됩니다.`;
-  // When no complete evidence survives, report uncertainty rather than invent details.
   return `${prefix}활동 기록이 확인되지만, 정확한 수행 내용은 원문을 다시 확인해야 합니다.`;
 }
 // Duplicated evidence may carry different subject/competency prefixes.
@@ -304,10 +316,17 @@ function appendEvidencePreview(parent, raw, heading = "원문 근거 보기") {
   if (!source) return;
   const details = el("details", "seedu-original-evidence");
   details.append(el("summary", "", heading));
-  const incomplete = /(?:…|\.\.\.)/.test(source);
-  details.append(el("p", "", incomplete
-    ? "이전 분석 결과에 불완전한 인용이 저장되어 있습니다. 전체 학생부 기록으로 새로 분석하면 원문을 확인할 수 있습니다."
-    : source));
+  const entries = splitEvidenceEntries(source);
+  entries.forEach(entry => {
+    if (/^외\s+\d+개\s+활동/.test(entry)) {
+      details.append(el("p", "seedu-evidence-item", entry));
+      return;
+    }
+    const incomplete = /(?:…|\.\.\.)/.test(entry);
+    details.append(el("p", "seedu-evidence-item", incomplete
+      ? "이전 분석 결과에 불완전한 인용이 저장되어 있습니다. 전체 학생부 기록으로 새로 분석하면 원문을 확인할 수 있습니다."
+      : entry));
+  });
   parent.append(details);
 }
 
