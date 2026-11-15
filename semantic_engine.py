@@ -94,6 +94,9 @@ def clean_facts(raw, sources):
     """Accept facts only if quote is verbatim within its designated source."""
     facts = []
     seen = set()
+    # The same verbatim sentence may be submitted under two nearly identical
+    # subject labels. It is ONE activity, not two independent pieces of evidence.
+    by_quote = {}
     if not isinstance(raw, list):
         return facts
     for original_id, obj in enumerate(raw):
@@ -115,16 +118,36 @@ def clean_facts(raw, sources):
         tags = [s for s in obj.get("tags", []) if isinstance(s, str) and s in TAGS] if isinstance(obj.get("tags"), list) else []
         if not tags:
             continue
-        facts.append({"id":original_id, "source_index":index, "grade":sources[index]["grade"],
-                      "source":sources[index]["source"], "quote":quote,
-                      "tags":tags, "interpretation":str(obj.get("interpretation") or "")[:150]})
+        grade = sources[index]["grade"]
+        semantic_key = (grade, _norm(quote))
+        existing = by_quote.get(semantic_key)
+        if existing is not None:
+            # Preserve AI references to BOTH original fact IDs, and combine
+            # validated tags without counting the same quotation twice.
+            existing["alias_ids"].append(original_id)
+            existing["tags"] = list(dict.fromkeys(existing["tags"] + tags))
+            previous_source = str(existing["source"])
+            current_source = str(sources[index]["source"])
+            # Prefer the fully spelled official subject label when duplicates
+            # disagree (e.g. '통수학1' versus '공통수학1').
+            if ("공통" in current_source and "공통" not in previous_source):
+                existing["source"] = current_source
+                existing["source_index"] = index
+            continue
+        entry = {"id":original_id, "alias_ids":[original_id],
+                 "source_index":index, "grade":grade,
+                 "source":sources[index]["source"], "quote":quote,
+                 "tags":tags, "interpretation":str(obj.get("interpretation") or "")[:150]}
+        by_quote[semantic_key] = entry
+        facts.append(entry)
     return facts
 
 
 def _valid_ids(value, facts):
     if not isinstance(value, list):
         return []
-    position = {fact["id"]: idx for idx, fact in enumerate(facts)}
+    position = {fact_id: idx for idx, fact in enumerate(facts)
+                for fact_id in fact.get("alias_ids", [fact["id"]])}
     return list(dict.fromkeys(position[v] for v in value if type(v) is int and v in position))
 
 
@@ -475,14 +498,17 @@ def build_analysis(raw, records, text, grade, sources, candidates):
         # A concise, complete sentence rather than a quote fragment or an ellipsis.
         chosen = []
         seen_sources = set()
+        seen_quotes = set()
         for f in year_facts:
-            if f['source'] in seen_sources:
-                continue
-            seen_sources.add(f['source'])
             quote = str(f.get('quote') or '').strip()
             source_name = str(f.get('source') or '활동')
             if not quote:
                 continue
+            quote_key = _norm(quote)
+            if quote_key in seen_quotes or source_name in seen_sources:
+                continue
+            seen_quotes.add(quote_key)
+            seen_sources.add(source_name)
             # Prefer a complete sentence from verified evidence; never truncate mid-sentence.
             sentences = re.split(r'(?<=[.!?。])\s+', quote)
             complete = next((v.strip() for v in sentences if len(v.strip()) >= 12 and re.search(r'[.!?。]$', v.strip())), '')

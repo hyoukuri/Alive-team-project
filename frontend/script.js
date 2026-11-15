@@ -250,6 +250,39 @@ function evidenceSummary(value) {
   // When no complete evidence survives, report uncertainty rather than invent details.
   return `${prefix}활동 기록이 확인되지만, 정확한 수행 내용은 원문을 다시 확인해야 합니다.`;
 }
+// Duplicated evidence may carry different subject/competency prefixes.
+// Compare the original quoted activity, not its decorative label.
+function evidenceIdentity(value) {
+  const raw = String(value ?? '').replace(/\s+/g, ' ').trim();
+  const afterDash = raw.includes('—') ? raw.split('—').slice(-1)[0].trim() : '';
+  const quoted = raw.match(/[“"]([^”"]{12,})[”"]/)?.[1] || '';
+  const body = afterDash || quoted || raw.replace(/^(?:.*?\d학년\s+)?(?:과목:\s*)?[^:：]{1,45}[:：]\s*/, '');
+  return body.replace(/[“”"'‘’\s.,!?。·]/g, '').toLowerCase();
+}
+function evidenceLabelQuality(value) {
+  const label = String(value ?? '').trim();
+  // Prefer a correctly written official subject name over a shortened typo.
+  if (/^(?:\d학년\s+)?(?:과목:\s*)?공통수학1\s*[:：]/.test(label)) return 2;
+  if (/^(?:\d학년\s+)?(?:과목:\s*)?통수학1\s*[:：]/.test(label)) return 0;
+  return 1;
+}
+function uniqueEvidenceItems(values) {
+  const unique = new Map();
+  values.forEach(value => {
+    const key = evidenceIdentity(value);
+    if (!key) return;
+    if (!unique.has(key) || evidenceLabelQuality(value) > evidenceLabelQuality(unique.get(key))) {
+      unique.set(key, value);
+    }
+  });
+  return [...unique.values()];
+}
+function dedupeGrowthSummary(value) {
+  const raw = String(value ?? '');
+  // Growth records separate independently evidenced activities with ' / '.
+  const parts = raw.split(/\s+\/\s+/);
+  return parts.length < 2 ? raw : uniqueEvidenceItems(parts).join(' / ');
+}
 function conciseText(value) { return evidenceSummary(value); }
 function compactEvidence(value) { return evidenceSummary(value); }
 function seeduFeedbackSummary(value) { return evidenceSummary(value); }
@@ -372,7 +405,7 @@ function renderDashboard(data) {
   ].forEach(([heading, values, className, emptyText]) => {
     const box = card(heading, `feedback-card ${className} seedu-brief-feedback`);
     const list = el("ul", "seedu-feedback-list");
-    const items = values.filter(x => String(x || "").trim()).slice(0, 2);
+    const items = uniqueEvidenceItems(values.filter(x => String(x || "").trim())).slice(0, 2);
     (items.length ? items : [emptyText]).forEach(value => {
       const li = el("li", "", seeduFeedbackSummary(value));
       if (String(value).length > 155) appendEvidencePreview(li, value);
@@ -486,7 +519,7 @@ function renderDashboard(data) {
       row.append(
         el("span", "growth-year", `${item.grade}학년`)
       );
-      const summary = String(item.summary || '');
+      const summary = dedupeGrowthSummary(String(item.summary || ''));
       row.append(el("p", "", evidenceSummary(summary)));
       appendEvidencePreview(row, summary, "성장 기록 원문 보기");
 
