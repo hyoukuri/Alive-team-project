@@ -133,10 +133,10 @@ def _safe_error_message(exc: Exception) -> str:
     if not isinstance(exc, ValueError):
         return '-'
     message = str(exc).replace('\r', ' ').replace('\n', ' ')
-    key = os.getenv('OPENROUTER_API_KEY', '').strip()
+    key = os.getenv('OPENAI_API_KEY', '').strip()
     if key:
         message = message.replace(key, '[REDACTED_API_KEY]')
-    message = re.sub(r'sk-or-[A-Za-z0-9_-]+', '[REDACTED_API_KEY]', message)
+    message = re.sub(r'sk-[A-Za-z0-9_-]+', '[REDACTED_API_KEY]', message)
     if len(message) > 240:
         return '[validation message truncated; inspect ai_semantic.py]'
     return message or '-'
@@ -156,7 +156,7 @@ def _log_error(exc):
             request_id = str(headers.get('x-request-id') or headers.get('X-Request-ID') or '-')[:80]
             retry_after = str(headers.get('retry-after') or '-')[:40]
     LOG.warning(
-        'SEEDU light AI failure: type=%s status=%s code=%s '
+        'SEEDU official OpenAI failure: type=%s status=%s code=%s '
         'reason=%s retry_after=%s request_id=%s',
         type(exc).__name__, status, code, _safe_error_message(exc),
         retry_after, request_id,
