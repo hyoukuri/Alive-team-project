@@ -298,6 +298,68 @@ function appendEvidencePreview(parent, raw, heading = "원문 근거 보기") {
   parent.append(details);
 }
 
+// A major is selected separately from the five general competencies.
+// Use ONLY verified, major-linked evidenceSources from the server; never
+// infer a student's personal strength from a high generic competency score.
+function majorFeedbackProfile(major) {
+  const name = String(major || "");
+  const profiles = [
+    [/기계|자동차|로봇|항공우주|건축공학|토목/, "수학·물리 개념을 실제 구조와 시스템에 적용하는 역량", "변인(재료·형상·하중 등)을 정해 모형을 설계하고 동일 조건에서 반복 측정한 뒤 오차를 분석해 보세요."],
+    [/화학|신소재|환경공학|에너지/, "물질 변화와 실험 데이터를 해석하는 역량", "반응 조건을 통제하고 정량 측정값을 수집해 반복 실험·오차 분석·후속 가설을 제시해 보세요."],
+    [/국어국문|영어영문|일어일문|중어중문|언어학/, "텍스트·언어 자료를 근거로 해석하고 비교하는 역량", "서로 다른 작품이나 언어 자료를 같은 기준으로 비교하고 반대 해석까지 검토한 비평·분석 보고서를 작성해 보세요."],
+    [/수학|통계|데이터사이언스|인공지능|컴퓨터|소프트웨어|정보보안/, "수리적 모델링과 데이터·알고리즘을 활용한 문제 해결 역량", "자료의 출처·표본·모형 가정을 명시하고 다른 조건의 데이터로 예측·분석 결과를 검증해 보세요."],
+    [/생명|의예|약학|간호|보건|치의|수의/, "생명·건강 현상을 과학적 근거로 해석하는 역량", "생명·건강 관련 탐구에서 대조 조건과 자료 신뢰도를 확인하고 연구 윤리·한계를 함께 정리해 보세요."],
+    [/교육|심리|사회|경제|경영|정치|행정|법학/, "사회·인간 현상을 근거 자료와 개념으로 설명하는 역량", "명확한 연구 질문을 설정하고 사례·통계·문헌 자료를 비교해 대안과 한계를 제시해 보세요."],
+    [/디자인|미디어|광고|영상|애니메이션|음악|무용/, "표현·제작 의도를 분석하고 결과물을 개선하는 역량", "대상 사용자·감상자의 반응을 수집하고 제작 전후 결과를 같은 기준으로 비교해 개선안을 제시해 보세요."]
+  ];
+  const profile = profiles.find(([rx]) => rx.test(name));
+  return profile ? { connection: profile[1], next: profile[2] } : {
+    connection: `${name}의 핵심 개념을 교과 활동에 적용하는 역량`,
+    next: `${name}의 기초 개념을 정리하고 관련 탐구 질문·방법·검증 기준을 구체화해 후속 활동을 기록해 보세요.`
+  };
+}
+
+function buildMajorFeedback(major) {
+  const profile = majorFeedbackProfile(major?.name);
+  const evidence = (major?.evidenceSources || []).filter(x => x && x.quote && x.source);
+  const seen = new Set();
+  const unique = evidence.filter(item => {
+    const key = `${item.grade}|${String(item.quote).replace(/\s+/g, "").toLowerCase()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const strengths = unique.slice(0, 2).map(item => {
+    const subject = String(item.source).replace(/^과목:\s*/, "").trim();
+    const summary = evidenceSummary(item.quote);
+    return `${item.grade}학년 ${subject}: ${summary} 이 활동은 ${profile.connection}과 연결해 발전시킬 수 있습니다.`;
+  });
+  if (!strengths.length) strengths.push(`${major?.name || "선택 전공"}과 직접 연결된 검증 근거가 현재 분석 결과에서 확인되지 않았습니다. 전공 관련 강점을 단정하지 않습니다.`);
+  const coverage = major?.categoryCoverage || {};
+  const missing = ["탐구 심화도", "관심의 지속성", "융합 역량", "전공 관련 활동", "학업 역량"].filter(k => !(Number(coverage[k]) > 0));
+  const labels = {
+    "탐구 심화도": "자료 수집 → 분석 → 재검증을 이어 간 후속 기록",
+    "관심의 지속성": "같은 전공 주제를 학기·학년을 넘어 발전시킨 기록",
+    "융합 역량": "두 교과의 개념을 하나의 전공 문제에 적용한 기록",
+    "전공 관련 활동": "전공 주제와 직접 연결되는 수행 과정·결과 기록",
+    "학업 역량": "관련 교과 개념을 적용하고 오류를 검토한 기록"
+  };
+  const improvements = [];
+  if (missing.length) {
+    improvements.push(`현재 연결된 학생부 근거에서 '${missing[0]}' 지표를 평가할 자료가 충분히 확인되지 않았습니다. ${labels[missing[0]]}을 확인하거나 새롭게 계획해 보세요. (능력 부족 판정이 아닙니다.)`);
+  } else {
+    improvements.push("전공 관련 평가 지표에 일부 근거가 연결되어 있습니다. 다음 단계에서는 수행 결과의 타당성과 반복 검증 기록을 더 확인해 보세요.");
+  }
+  improvements.push(`${major?.name || "희망 전공"} 후속 탐구: ${profile.next}`);
+  return {strengths, improvements};
+}
+
+function appendFeedbackList(box, values) {
+  const list = el("ul", "seedu-feedback-list");
+  values.forEach(value => list.append(el("li", "", value)));
+  box.append(list);
+}
+
 function renderDashboard(data) {
   analysisResults.replaceChildren();
 
@@ -397,24 +459,54 @@ function renderDashboard(data) {
   competencies.append(visual);
   analysisResults.append(competencies);
 
-  // Show only two key observations. No forced one-line clipping or horizontal overflow.
+  // Separate generic competency feedback from MAJOR-SPECIFIC evidence.
+  // Users can compare how the same record relates to each proposed major.
   const feedbackWrap = el("div", "seedu-feedback-grid span-full");
-  [
-    ["나의 강점", data.strengths, "strength-card", "확인된 강점이 없습니다."],
-    ["보완할 점", data.improvements, "improve-card", "추가 탐색이 필요한 부분을 확인해 보세요."]
-  ].forEach(([heading, values, className, emptyText]) => {
-    const box = card(heading, `feedback-card ${className} seedu-brief-feedback`);
-    const list = el("ul", "seedu-feedback-list");
-    const items = uniqueEvidenceItems(values.filter(x => String(x || "").trim())).slice(0, 2);
-    (items.length ? items : [emptyText]).forEach(value => {
-      const li = el("li", "", seeduFeedbackSummary(value));
-      if (String(value).length > 155) appendEvidencePreview(li, value);
-      list.append(li);
+  const majorFeedbackTitle = el("div", "seedu-major-feedback-title span-full");
+  majorFeedbackTitle.append(el("h2", "card-heading", "학과별 강점 · 보완할 점"));
+  majorFeedbackTitle.append(el("p", "muted", "선택한 학과의 검증된 세특 근거만 사용합니다. 전공 관련 근거가 없으면 강점으로 단정하지 않습니다."));
+  analysisResults.append(majorFeedbackTitle);
+  const majorPicker = el("div", "seedu-major-feedback-picker span-full");
+  const strengthCard = card("전공 연계 강점", "feedback-card strength-card seedu-brief-feedback");
+  const improvementCard = card("전공 연계 보완 방향", "feedback-card improve-card seedu-brief-feedback");
+  const paintMajor = major => {
+    const result = buildMajorFeedback(major);
+    strengthCard.replaceChildren(el("h2", "card-heading", `${major.name} · 강점`));
+    improvementCard.replaceChildren(el("h2", "card-heading", `${major.name} · 보완 방향`));
+    appendFeedbackList(strengthCard, result.strengths);
+    appendFeedbackList(improvementCard, result.improvements);
+  };
+  if (data.majors.length) {
+    data.majors.forEach((major, i) => {
+      const btn = el("button", "seedu-major-feedback-button", major.name);
+      btn.type = "button";
+      btn.addEventListener("click", () => {
+        majorPicker.querySelectorAll("button").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        paintMajor(major);
+      });
+      majorPicker.append(btn);
+      if (i === 0) btn.click();
     });
-    box.append(list);
-    feedbackWrap.append(box);
-  });
+  } else {
+    strengthCard.append(el("p", "muted", "검증된 학과별 추천 근거가 없어 전공 연계 강점을 판단하지 않습니다."));
+    improvementCard.append(el("p", "muted", "희망 학과를 선택한 후 관련 세특 근거를 검토해 보세요."));
+  }
+  analysisResults.append(majorPicker);
+  feedbackWrap.append(strengthCard, improvementCard);
   analysisResults.append(feedbackWrap);
+
+  // Preserve the original five-competency feedback as a separate disclosure.
+  const generalDetails = el("details", "seedu-general-feedback span-full");
+  generalDetails.append(el("summary", "", "공통 5대 역량 강점·보완 분석도 보기"));
+  const generalGrid = el("div", "seedu-feedback-grid");
+  [["공통 역량 강점", data.strengths, "strength-card"], ["공통 역량 보완", data.improvements, "improve-card"]].forEach(([heading, values, klass]) => {
+    const box = card(heading, `feedback-card ${klass} seedu-brief-feedback`);
+    appendFeedbackList(box, uniqueEvidenceItems(values).slice(0, 2).map(seeduFeedbackSummary));
+    generalGrid.append(box);
+  });
+  generalDetails.append(generalGrid);
+  analysisResults.append(generalDetails);
 
   const majors = card("근거 중심 전공 탐색", "span-full");
   const majorList = el("div", "major-list");
@@ -894,6 +986,22 @@ function renderRoadmap(data) {
       : "전공 분야별 탐구 설계 예시입니다. 학생부를 직접 해석한 개인화 결과는 아닙니다.")
   );
   planResults.append(intro);
+
+  const matchedMajor = latestAnalysis?.majors?.find(item => item.name === (data.major || selectedMajor));
+  const majorFeedbackCard = card("희망 학과 기준 · 나의 강점과 보완 방향", "span-full seedu-roadmap-major-feedback");
+  if (matchedMajor) {
+    const linked = buildMajorFeedback(matchedMajor);
+    const columns = el("div", "seedu-feedback-grid");
+    const a = card("전공 연계 강점", "feedback-card strength-card");
+    const b = card("전공 연계 보완 방향", "feedback-card improve-card");
+    appendFeedbackList(a, linked.strengths);
+    appendFeedbackList(b, linked.improvements);
+    columns.append(a, b);
+    majorFeedbackCard.append(columns);
+  } else {
+    majorFeedbackCard.append(el("p", "muted", "선택 학과와 연결된 검증 근거가 이전 분석 결과에 없습니다. 이 전공의 강점을 추측하지 않고, 아래에 후속 탐구 계획만 제안합니다."));
+  }
+  planResults.append(majorFeedbackCard);
 
   const subjectCard = card("추천 선택과목 · 왜 필요한가요?");
   subjectCard.append(el("p", "roadmap-section-note", "실제 학교 개설 과목과 교육과정에 따라 과목명·선택 가능 여부가 달라질 수 있습니다."));

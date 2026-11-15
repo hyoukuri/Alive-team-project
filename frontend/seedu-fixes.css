@@ -149,3 +149,19 @@
 #plan-results .activity-list {display:grid!important;grid-template-columns:minmax(0,1fr)!important;gap:18px!important;}
 #plan-results .roadmap-project * {min-width:0;max-width:100%;overflow-wrap:anywhere;word-break:keep-all;}
 @media(max-width:680px){#plan-results .subject-list{grid-template-columns:minmax(0,1fr)!important;}#plan-results .roadmap-project{padding:16px!important;}}
+
+/* Major-linked strengths and improvement cards */
+#analysis-results .seedu-major-feedback-title { grid-column:1/-1; }
+#analysis-results .seedu-major-feedback-title .card-heading { margin-bottom:5px; }
+#analysis-results .seedu-major-feedback-picker { display:flex; gap:9px; flex-wrap:wrap; grid-column:1/-1; }
+#analysis-results .seedu-major-feedback-button { border:1px solid #9aafc4; border-radius:999px; padding:10px 15px; background:#fff; color:#21445e; cursor:pointer; font:inherit; font-weight:650; max-width:100%; white-space:normal; overflow-wrap:anywhere; }
+#analysis-results .seedu-major-feedback-button.active { background:#173d59; color:#fff; border-color:#173d59; }
+#analysis-results .seedu-general-feedback { grid-column:1/-1; padding:12px 2px; }
+#analysis-results .seedu-general-feedback summary { cursor:pointer; font-weight:650; color:#385d77; padding:8px 0; }
+#analysis-results .seedu-general-feedback .seedu-feedback-grid { margin-top:12px; }
+#plan-results .seedu-roadmap-major-feedback { grid-column:1/-1; }
+#plan-results .seedu-roadmap-major-feedback .seedu-feedback-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:15px; }
+#plan-results .seedu-roadmap-major-feedback .result-card { margin:0; min-width:0; }
+#plan-results .seedu-roadmap-major-feedback .seedu-feedback-list { list-style:disc; padding-left:20px; margin:0; overflow-wrap:anywhere; }
+#plan-results .seedu-roadmap-major-feedback .seedu-feedback-list li { margin-bottom:12px; line-height:1.7; overflow-wrap:anywhere; }
+@media(max-width:700px){#plan-results .seedu-roadmap-major-feedback .seedu-feedback-grid{grid-template-columns:1fr;}}
