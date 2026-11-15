@@ -1,0 +1,524 @@
+"""SEEDU:ON 3.0: evidence-first semantic scoring.
+
+AI reads context and identifies actions. Python validates verbatim evidence, applies
+conservative ceilings, and calculates the 16 weighted scores. No keyword hits
+can increase the scored aptitude. Research-informed design, NOT a validated
+university admissions score.
+"""
+from __future__ import annotations
+
+import re
+from collections import defaultdict
+from rubric_v2 import INDICATORS, MAJOR_FIT_RUBRIC, COMPETENCY_NAMES
+from rubric_engine import MAJORS, LEARNING_VALUE, _record_chunks
+
+VERSION = "rubric-3.2-major-evidence-ui-20261115"
+TAGS = {"learning", "career", "question", "method", "result", "validation", "revision", "collaboration", "leadership", "reflection", "planning", "interdisciplinary", "comparison", "application", "continuity", "concept"}
+# action-level semantics from AI, not keyword matches
+HIGH_ACTIONS = {"validation", "revision"}
+
+
+# Frontend stores individual activities as [과목: X] / [동아리활동: Y] blocks.
+# Do not merge different activities into the same grade/source bucket: the
+# downstream scoring is per activity, and merging silently hides later subjects.
+_ACTIVITY_HEADING = re.compile(r"(?m)^\s*\[(?:과목|교과 세특|자율·자치활동|동아리활동|진로활동|행동특성 및 종합의견):\s*[^\]\n]+\]\s*$")
+
+
+def prepare(records, text, grade):
+    chunks = _record_chunks(records, text)
+    if not chunks:
+        raise ValueError("분석할 학생부 기록이 없습니다.")
+    sources = []
+    for chunk in chunks:
+        original = str(chunk.get("text") or "")
+        matches = list(_ACTIVITY_HEADING.finditer(original))
+        if not matches:
+            if original.strip():
+                sources.append({"grade": chunk["grade"], "source": chunk["source"], "text": original})
+            continue
+        if original[:matches[0].start()].strip():
+            sources.append({"grade": chunk["grade"], "source": chunk["source"],
+                            "text": original[:matches[0].start()]})
+        for i, match in enumerate(matches):
+            end = matches[i+1].start() if i+1 < len(matches) else len(original)
+            segment = original[match.start():end]
+            if segment.strip():
+                title = match.group().strip().strip("[]")
+                sources.append({"grade": chunk["grade"], "source": title, "text": segment})
+    if not sources:
+        raise ValueError("분석할 학생부 기록이 없습니다.")
+    return sources
+
+
+# These are broad terms that cannot, by themselves, establish interest in a major.
+_GENERIC_TERMS = {
+    '학습','수업','발표','학교','선생님','교사','친구','학생','학급','지도','조별',
+    '협력','협동','활동','참여','독서','읽기','글쓰기','토론','자료','분석','탐구',
+    '과제','연구','문제','실험','수학','과학','기술','교육','교과','사회','문화',
+    '정보','진로','성장','수행','프로젝트','계획','기초','심화','발견',
+}
+
+def _major_terms(major):
+    return [str(x).strip().casefold() for x in MAJORS.get(major, [])
+            if len(str(x).strip()) >= 2 and str(x).strip() not in _GENERIC_TERMS]
+
+
+def candidates_from_sources(sources):
+    """Conservative shortlist from distinctive subject-matter signals only.
+
+    No arbitrary fallback majors are inserted to make up three names. This is
+    candidate discovery, not an aptitude assessment.
+    """
+    scored = []
+    for major in MAJORS:
+        terms = _major_terms(major)
+        matching_activities = 0
+        distinct_terms = set()
+        for source in sources:
+            body = str(source.get('text') or '').casefold()
+            found = {term for term in terms if term in body}
+            if found:
+                matching_activities += 1
+                distinct_terms.update(found)
+        if matching_activities:
+            scored.append((major, matching_activities, len(distinct_terms)))
+    scored.sort(key=lambda x: (-x[1], -x[2], x[0]))
+    return [major for major, _, _ in scored[:8]]
+
+
+def _norm(s):
+    return re.sub(r"\s+", "", str(s or "")).casefold()
+
+
+def clean_facts(raw, sources):
+    """Accept facts only if quote is verbatim within its designated source."""
+    facts = []
+    seen = set()
+    if not isinstance(raw, list):
+        return facts
+    for original_id, obj in enumerate(raw):
+        if not isinstance(obj, dict):
+            continue
+        try:
+            index = int(obj.get("source_index"))
+        except (ValueError, TypeError):
+            continue
+        if not 0 <= index < len(sources):
+            continue
+        quote = str(obj.get("quote") or "").strip()
+        if len(quote) < 12 or len(quote) > 550 or _norm(quote) not in _norm(sources[index]["text"]):
+            continue
+        key = (index, _norm(quote))
+        if key in seen:
+            continue
+        seen.add(key)
+        tags = [s for s in obj.get("tags", []) if isinstance(s, str) and s in TAGS] if isinstance(obj.get("tags"), list) else []
+        if not tags:
+            continue
+        facts.append({"id":original_id, "source_index":index, "grade":sources[index]["grade"],
+                      "source":sources[index]["source"], "quote":quote,
+                      "tags":tags, "interpretation":str(obj.get("interpretation") or "")[:150]})
+    return facts
+
+
+def _valid_ids(value, facts):
+    if not isinstance(value, list):
+        return []
+    position = {fact["id"]: idx for idx, fact in enumerate(facts)}
+    return list(dict.fromkeys(position[v] for v in value if type(v) is int and v in position))
+
+
+def _find_quote_facts(facts, quote):
+    q = _norm(quote)
+    return [f for f in facts if q and (_norm(f["quote"]) == q or q in _norm(f["quote"]))]
+
+
+
+def _evidence_reference_score(rating, linked_facts, name):
+    """Rubric-referenced display index: validated evidence richness within rating tier.
+    NOT an empirically calibrated aptitude or admissions metric.
+    """
+    if rating is None or not linked_facts:
+        return None
+    # Tier level stays authoritative: evidence richness can refine, not jump tiers.
+    tag_group = {
+        "학업역량": {"learning","concept","application","method","result","validation","revision"},
+        "진로역량": {"career","continuity","method","application","planning","comparison","result","revision"},
+        "탐구역량": {"question","method","comparison","result","validation","revision"},
+        "공동체역량": {"collaboration","leadership","method","result","revision","validation"},
+        "성장가능성": {"reflection","planning","revision","continuity","result","validation"},
+    }.get(name, set())
+    tags = set().union(*(set(f.get("tags", [])) for f in linked_facts)) & tag_group
+    sources = {(f.get("grade"),f.get("source")) for f in linked_facts}
+    # Stable, explicit index: each independently evidenced feature adds detail.
+    richness = min(18, len(tags)*2 + min(len(sources), 3)*2 + min(len(linked_facts), 3))
+    band_start = {0:0,1:20,2:40,3:60,4:80}.get(rating,0)
+    return min(100, band_start + richness)
+
+def competencies_from_ai(raw, facts):
+    by_name = {x.get("name"):x for x in raw if isinstance(x, dict)} if isinstance(raw, list) else {}
+    result = []
+    for name in COMPETENCY_NAMES:
+        item = by_name.get(name, {})
+        value = item.get("rating")
+        rating = value if type(value) is int and 0 <= value <= 4 else None
+        ids = _valid_ids(item.get("evidence_ids"), facts)
+        # High ratings need multiple distinct behavioral facts; a mere claimed score is insufficient.
+        facts_for = [facts[i] for i in ids]
+        tags = set().union(*(set(f["tags"]) for f in facts_for)) if facts_for else set()
+        if not facts_for:
+            rating = None
+        elif rating is not None:
+            # Upper bounds are guardrails. Several tags spread across unrelated
+            # activities must not be merged into a fabricated causal process.
+            same_source = defaultdict(list)
+            for fact in facts_for:
+                same_source[(fact['grade'],fact['source'])].append(fact)
+            cap=1
+            for activity in same_source.values():
+                t=set().union(*(set(f['tags']) for f in activity))
+                n=len(activity)
+                activity_cap=1
+                if name == '학업역량':
+                    if t & {'learning','concept'} and t & {'application','method'}:
+                        activity_cap=2
+                    if activity_cap>=2 and 'result' in t and n>=2:
+                        activity_cap=3
+                    if activity_cap>=3 and {'validation','revision'} <= t and n>=3:
+                        activity_cap=4
+                elif name == '진로역량':
+                    if 'career' in t and t & {'planning','comparison','method','application'}:
+                        activity_cap=2
+                    if activity_cap>=2 and 'continuity' in t and t & {'method','application'} and n>=2:
+                        activity_cap=3
+                    if activity_cap>=3 and {'revision','result'} <= t and n>=3:
+                        activity_cap=4
+                elif name == '탐구역량':
+                    if 'method' in t and t & {'question','comparison','result'}:
+                        activity_cap=2
+                    if activity_cap>=2 and 'result' in t and t & {'comparison','validation','question'} and n>=2:
+                        activity_cap=3
+                    if activity_cap>=3 and {'validation','revision'} <= t and n>=3:
+                        activity_cap=4
+                elif name == '공동체역량':
+                    if 'collaboration' in t and t & {'method','result','leadership'}:
+                        activity_cap=2
+                    if activity_cap>=2 and {'leadership','result'} <= t and n>=2:
+                        activity_cap=3
+                    if activity_cap>=3 and {'revision','validation'} <= t and n>=3:
+                        activity_cap=4
+                elif name == '성장가능성':
+                    if 'reflection' in t and t & {'planning','revision'}:
+                        activity_cap=2
+                    if activity_cap>=2 and {'revision','result'} <= t and n>=2:
+                        activity_cap=3
+                    if activity_cap>=3 and {'validation','continuity'} <= t and n>=3:
+                        activity_cap=4
+                cap=max(cap,activity_cap)
+            rating = min(rating, cap)
+        # Representative evidence must not always be the first activity.
+        unique = {}
+        for fact in facts_for:
+            unique.setdefault((fact['grade'], fact['source']), fact)
+        selected_facts = list(unique.values())
+        evidence = (' / '.join(f"{f['grade']}학년 {f['source']}: {f['quote']}"
+                             for f in selected_facts[:6])
+                    + (f" / 외 {len(selected_facts)-6}개 활동" if len(selected_facts)>6 else '')) if facts_for else "근거를 확인하지 못했습니다. 평가를 보류합니다."
+        result.append({"name":name,"rating":rating,"score":_evidence_reference_score(rating, facts_for, name),
+                       "status":"rated" if rating is not None else "insufficient_evidence",
+                       "evidence":evidence,
+                       "reason":str(item.get("reason") or "")[:220],
+                       "evidence_source": {"grade": facts_for[0]["grade"], "category": facts_for[0]["source"],
+                                            "quote":facts_for[0]["quote"], "verified":True} if facts_for else {"verified":False,"quote":""}})
+    return result
+
+# Need BOTH semantic evidence and several related actions for high marks.
+# Values are requirements for levels 2, 3 and 4 respectively; no keyword triggers.
+REQUIREMENTS = {
+    "전공 주제 관련성": ({"career"}, {"method"}, {"concept","application"}),
+    "활동의 구체성": ({"method"}, {"result"}, {"validation","revision"}),
+    "활동 간 연계성": ({"continuity"}, {"method"}, {"revision"}),
+    "전공 기초 교과 역량": ({"learning","concept"}, {"application"}, {"validation"}),
+    "지식의 실제 적용": ({"application"}, {"result"}, {"validation","revision"}),
+    "학습 태도와 개선": ({"reflection"}, {"revision"}, {"validation"}),
+    "관심 주제의 반복·유지": ({"career"}, {"continuity"}, {"revision"}),
+    "관심의 발전 과정": ({"career"}, {"continuity"}, {"revision","result"}),
+    "자기주도적 확장": ({"planning"}, {"method"}, {"result","revision"}),
+    "탐구 문제 설정": ({"question"}, {"method"}, {"validation"}),
+    "탐구 방법 설계": ({"method"}, {"question"}, {"validation","revision"}),
+    "결과 분석 및 검증": ({"result"}, {"comparison","validation"}, {"revision"}),
+    "개선 및 후속 탐구": ({"revision"}, {"method"}, {"validation","result"}),
+    "타 분야 지식 활용": ({"interdisciplinary"}, {"application"}, {"result"}),
+    "융합적 문제해결": ({"interdisciplinary"}, {"question","method"}, {"result"}),
+    "융합 결과의 타당성": ({"interdisciplinary"}, {"result"}, {"validation"}),
+}
+
+
+def _indicator_score(indicator, linked):
+    """Conservative per-activity evidence for the existing 16 indicators.
+
+    A tag from an unrelated source must not complete another source's method,
+    result or follow-up. No missing indicator becomes a zero.
+    """
+    if not linked:
+        return None
+    level2, level3, level4 = REQUIREMENTS[indicator]
+    by_source = defaultdict(list)
+    for fact in linked:
+        by_source[(fact['grade'], fact['source'])].append(fact)
+    ratings=[]
+    for actions in by_source.values():
+        tags=set().union(*(set(f['tags']) for f in actions))
+        if not tags & level2:
+            continue
+        rating=1
+        if tags & {'method','application','collaboration','revision','result'}:
+            rating=2
+        if (rating>=2 and tags & level3 and 'result' in tags
+                and tags & {'method','application','comparison','question'}):
+            rating=3
+        if (rating>=3 and len(actions)>=3 and tags & level4
+                and 'validation' in tags and 'revision' in tags):
+            rating=4
+        ratings.append(rating)
+    if not ratings:
+        return None
+    best=max(ratings)
+    # Activity linkage and sustained interest cannot be evidenced by one source.
+    if indicator in {'활동 간 연계성','관심 주제의 반복·유지','관심의 발전 과정'}:
+        if len(by_source)<2:
+            best=min(best,2)
+        # A repeated keyword is not demonstrated development.
+        if not any('continuity' in f['tags'] for f in linked):
+            best=min(best,1)
+    return best
+
+def majors_from_ai(raw_links, facts, candidates):
+    """Evidence-linked exploration candidates, NOT a major suitability ranking.
+
+    A major must have independent, specific, subject-matter evidence, not just
+    generic behavior or keyword frequency. A single strong activity is enough
+    for exploration, never a claim of overall suitability.
+    """
+    links = {x.get('major'): x for x in raw_links
+             if isinstance(x, dict) and x.get('major') in candidates} if isinstance(raw_links, list) else {}
+    scored = []
+    for major in candidates:
+        terms = _major_terms(major)
+        if not terms:
+            continue
+        ids = _valid_ids(links.get(major, {}).get('evidence_ids'), facts)
+        linked = []
+        seen = set()
+        for idx in ids:
+            fact = facts[idx]
+            # An AI link alone is insufficient: corroborate with a distinctive
+            # technical/humanities topic directly present in the verified quote
+            # (or its original source text if a fact is a short excerpt).
+            context = (str(fact['source']) + ' ' + str(fact['quote'])).casefold()
+            if not any(term in context for term in terms):
+                continue
+            if not set(fact['tags']) & {'career','question','method','result','application','concept','comparison','validation','interdisciplinary'}:
+                continue
+            key = (fact['grade'], fact['source'], fact['quote'])
+            if key not in seen:
+                linked.append(fact)
+                seen.add(key)
+        if not linked:
+            continue
+        categories = {cat: 0.0 for cat in MAJOR_FIT_RUBRIC}
+        category_coverage = {cat: 0 for cat in MAJOR_FIT_RUBRIC}
+        details, nested = [], {cat: {} for cat in MAJOR_FIT_RUBRIC}
+        coverage = 0
+        for cat, indicator, weight in INDICATORS:
+            rating = _indicator_score(indicator, linked)
+            nested[cat][indicator] = rating
+            if rating is not None:
+                coverage += weight
+                category_coverage[cat] += weight
+                categories[cat] += weight * rating / 4
+            required = REQUIREMENTS[indicator][0]
+            matched = next((f for f in linked if set(f['tags']) & required), None) if rating is not None else None
+            details.append({'category': cat, 'indicator': indicator, 'weight': weight,
+                            'rating': rating,
+                            'status': 'rated' if rating is not None else 'insufficient_evidence',
+                            'quote': matched['quote'] if matched else '',
+                            'grade': matched['grade'] if matched else None,
+                            'source': matched['source'] if matched else '',
+                            'verified': rating is not None})
+        if coverage <= 0:
+            continue
+        unique = {}
+        for fact in linked:
+            unique.setdefault((fact['grade'], fact['source']), fact)
+        # Prefer sustained interest across distinct activities. Keep all
+        # evidence internally, showing only the most informative examples.
+        ordered = sorted(unique.values(), key=lambda f:
+            (-len(set(f['tags']) & {'question','method','result','validation','revision','application','concept'}),
+             -len(f['quote']), f['grade'], f['source']))
+        evidence_sources = [{'grade': f['grade'], 'source': f['source'],
+                             'quote': f['quote']} for f in ordered]
+        samples = [f"{f['grade']}학년 {f['source']}: {f['quote']}" for f in ordered[:2]]
+        reason = ' / '.join(samples)
+        fit = {
+            'major': major, 'ratings': nested,
+            'category_scores': {k: round(v, 2) for k, v in categories.items()},
+            'category_coverage_weight': category_coverage,
+            # Do not produce a completed aptitude claim from this candidate heuristic.
+            'total_score': None, 'partial_score': round(sum(categories.values()), 2),
+            'coverage_weight': coverage, 'score_status': 'insufficient_evidence',
+            'indicator_details': details, 'evidence': reason,
+            'evidence_sources': evidence_sources,
+            'improvement': '전공 적합도 확정 점수는 제공하지 않습니다. 확인된 활동에 대한 부분 평가입니다.'
+        }
+        recommendation = {
+            'major': major, 'reason': reason, 'evidence_sources': evidence_sources,
+            'learning_value': LEARNING_VALUE.get(major, '해당 전공의 교과 구조를 탐색해 보세요.'),
+            'exploration': '관련 활동의 과정과 후속 탐구를 확인해 보세요.',
+            'status': 'exploration_candidate'
+        }
+        strong_actions = sum(bool(set(f['tags']) & {'method','result','validation','application'}) for f in ordered)
+        scored.append((len(ordered), strong_actions, coverage, major, recommendation, fit))
+    # Distinct, directly relevant activities before incomplete partial points.
+    scored.sort(key=lambda x: (-x[0], -x[1], -x[2], x[3]))
+    picked = scored[:3]
+    return [x[4] for x in picked], [x[5] for x in picked]
+
+
+# --- Evidence-grounded strengths and improvements (presentation only). ---
+# This section must not modify ratings or invent student actions.
+STRENGTH_INTERPRETATION = {
+    "학업역량": "교과 학습과 과제 수행에서 확인된 활동입니다.",
+    "진로역량": "관심 분야를 탐색하거나 전공과 연결한 활동입니다.",
+    "탐구역량": "문제를 조사하고 탐구 과정을 수행한 근거입니다.",
+    "공동체역량": "공동 활동에서 참여하거나 맡은 역할을 수행한 근거입니다.",
+    "성장가능성": "학습을 점검하거나 조정한 행동에 관한 근거입니다.",
+}
+IMPROVEMENT_NEXT = {
+    "학업역량": "개념을 적용한 결과와 오류를 확인하고, 수정 후 결과를 다시 비교한 기록을 보완해 보세요.",
+    "진로역량": "탐색한 관심 분야를 후속 학습·체험으로 연결하고, 실행 결과를 남겨 보세요.",
+    "탐구역량": "문제 설정부터 방법·결과·재검증까지 이어지는 과정을 구체적으로 기록해 보세요.",
+    "공동체역량": "본인의 역할뿐 아니라 공동 문제 해결과 협력 과정에서의 구체적인 기여를 기록해 보세요.",
+    "성장가능성": "피드백을 반영해 무엇을 바꾸었고, 변화의 효과를 어떻게 확인했는지 기록해 보세요.",
+}
+
+
+def _visible_evidence(item):
+    """Only verified input quotes are eligible; no invented evidence."""
+    src = item.get("evidence_source") or {}
+    if isinstance(src, dict) and src.get("verified") is True:
+        quote = str(src.get("quote") or "").strip()
+        if quote:
+            return f"{src.get('grade', '?')}학년 {src.get('category', '학생부')} — \"{quote}\""
+    return None
+
+
+def strengths_and_weaknesses(competencies):
+    """Explain confirmed scores without changing the scoring rubric.
+
+    A high relative rank is not claimed to be excellent. N/E is not treated as 0.
+    """
+    evaluated = [(index, item) for index, item in enumerate(competencies)
+                 if type(item.get('rating')) is int and _visible_evidence(item)]
+    pending = [item for item in competencies if item.get('rating') is None]
+    best = sorted(evaluated, key=lambda pair: (-pair[1]['rating'], pair[0]))[:2]
+    # Low-scoring dimensions first. Even a 3/4 score may have an actionable next step.
+    needs = sorted(evaluated, key=lambda pair: (pair[1]['rating'], pair[0]))[:2]
+
+    strengths = []
+    for _, item in best:
+        rating, name = item['rating'], item['name']
+        level = ("상대적으로 높은 평가" if rating >= 3 else
+                 "기록에서 확인된 수행" if rating == 2 else "기초적인 활동 확인")
+        strengths.append(f"{name} ({rating}/4, {level}): {_visible_evidence(item)}. "
+                         f"{STRENGTH_INTERPRETATION.get(name, '평가 근거가 확인된 활동입니다.')}")
+
+    weaknesses = []
+    for _, item in needs:
+        name, rating = item['name'], item['rating']
+        prefix = ("현재 기록에서는 기본적인 참여·수행만 확인됩니다." if rating <= 1 else
+                  "구체적인 수행은 확인되지만 심화·재검증까지 충분히 확인된 것은 아닙니다." if rating == 2 else
+                  "상대적으로 높은 평가를 받았지만 후속 심화 여부는 별도 확인이 필요합니다." if rating == 3 else
+                  "현재 평가에서 높은 수준의 근거가 확인되었습니다. 다음 단계의 지속성은 별도로 확인할 수 있습니다.")
+        weaknesses.append(f"{name} ({rating}/4): {prefix} "
+                          f"확인된 근거: {_visible_evidence(item)}. "
+                          f"다음 단계: {IMPROVEMENT_NEXT.get(name, '후속 활동의 과정과 결과를 기록해 보세요.')}")
+
+    # N/E is a request for evidence, not a statement that the student lacks ability.
+    for item in pending[:max(0, 3-len(weaknesses))]:
+        name = item['name']
+        weaknesses.append(f"{name} (N/E): 현재 입력된 자료에서 채점에 필요한 근거를 연결하지 못했습니다. "
+                          f"{IMPROVEMENT_NEXT.get(name, '관련 활동 기록을 추가로 확인해 보세요.')}")
+
+    if not strengths:
+        strengths = ["검증된 역량 근거가 없어 개인별 강점을 판단할 수 없습니다. 입력 자료와 AI 근거 연결을 확인해 주세요."]
+    if not weaknesses:
+        weaknesses = ["이번 입력에서 확인된 수행을 토대로 다음 학년의 후속 활동과 검증 결과를 기록해 보세요."]
+    return strengths, weaknesses
+
+
+def build_analysis(raw, records, text, grade, sources, candidates):
+    facts = clean_facts(raw.get("facts"), sources)
+    if not facts:
+        raise ValueError("AI가 확인 가능한 원문 근거를 반환하지 않았습니다.")
+    comps = competencies_from_ai(raw.get("competencies"), facts)
+    majors, fits = majors_from_ai(raw.get("major_links"), facts, candidates)
+    if not any(c["rating"] is not None for c in comps):
+        raise ValueError("AI가 근거에 연결된 역량 평가를 반환하지 않았습니다.")
+    strong, weak = strengths_and_weaknesses(comps)
+    # Describe observable activities rather than counting quotes or claiming
+    # year-to-year improvement without comparable evidence.
+    growth = []
+    grades_with_evidence = sorted({f["grade"] for f in facts})
+    for g in grades_with_evidence:
+        year_facts = [f for f in facts if f["grade"] == g]
+        # A concise, complete sentence rather than a quote fragment or an ellipsis.
+        chosen = []
+        seen_sources = set()
+        for f in year_facts:
+            if f['source'] in seen_sources:
+                continue
+            seen_sources.add(f['source'])
+            quote = str(f.get('quote') or '').strip()
+            source_name = str(f.get('source') or '활동')
+            if not quote:
+                continue
+            # Prefer a complete sentence from verified evidence; never truncate mid-sentence.
+            sentences = re.split(r'(?<=[.!?。])\s+', quote)
+            complete = next((v.strip() for v in sentences if len(v.strip()) >= 12 and re.search(r'[.!?。]$', v.strip())), '')
+            if complete and len(complete) <= 210:
+                chosen.append(f"{source_name}: {complete}")
+            else:
+                topic = re.search(r"[\"'‘“]([^\"'’”]{4,70})[\"'’”]", quote)
+                topic_name = topic.group(1) if topic else '교과 연계 탐구'
+                chosen.append(f"{source_name}: {topic_name} 관련 활동이 확인되었습니다.")
+        observed = ' / '.join(chosen[:3]) if chosen else '확인된 활동 근거를 추가로 검토해야 합니다.'
+        if len(chosen) > 3:
+            observed += f" / 추가 확인 활동 {len(chosen)-3}건"
+        caveat = ("단일 학년 기록으로는 학년 간 성장 여부를 판단할 수 없습니다."
+                  if len(grades_with_evidence) == 1 else
+                  "학년 간 변화는 동일 주제의 후속 기록과 함께 검토해야 합니다.")
+        growth.append({"grade": g, "summary": f"확인된 활동: {observed}. {caveat}"})
+    return {"rubric_version":VERSION,"analysis_mode":"semantic_ai_python_scoring",
+            "competencies":comps,"recommended_majors":majors,"major_fit":fits,
+            "strengths":strong,
+            "weaknesses":weak,
+            "growth":growth,"facts_verified":len(facts),
+            "assessment_notice":"AI 의미 해석과 Python 규칙의 참고 평가입니다. 공식 입학 평가·합격 확률이 아니며, N/E 지표는 종합점수에서 제외합니다."}
+
+
+def safe_fallback(records, text, grade, reason="ai_unavailable"):
+    # System outage is not an evaluation of student evidence. Never label outage as N/E.
+    sources = prepare(records,text,grade)
+    candidates = candidates_from_sources(sources)[:3]
+    return {"rubric_version":VERSION,"analysis_mode":"evidence_pending",
+            "competencies":[{"name":n,"rating":None,"score":None,"status":"analysis_unavailable",
+                             "evidence":"분석 서비스 오류로 평가가 실행되지 않았습니다. 학생부 근거 부족 판정이 아닙니다."} for n in COMPETENCY_NAMES],
+            "recommended_majors":[{"major":m,"reason":"추가 의미 검토가 필요한 탐색 후보입니다. 적합도 순위가 아닙니다."} for m in candidates],
+            "major_fit":[{"major":m,"ratings":{},"category_scores":{},"total_score":None,"partial_score":0,
+                         "coverage_weight":0,"score_status":"insufficient_evidence", "evidence":"AI 의미 검토 미완료", "improvement":"재분석 후 평가를 확인하세요."} for m in candidates],
+            "strengths":["학생부 기록은 정상적으로 접수되었습니다."],
+            "weaknesses":["AI 평가가 완료되지 않아 역량 점수는 제공하지 않습니다."],
+            "growth":[{"grade":g,"summary":"입력 기록은 접수되었지만 AI 서비스 오류로 평가하지 못했습니다."} for g in range(1,grade+1) if any(s["grade"]==g for s in sources)],
+            "assessment_notice":"학생부 평가 미실행: AI 서비스 오류가 발생했습니다. 근거 부족(N/E) 판정이 아닙니다.",
+            "fallback_reason":reason}
