@@ -464,7 +464,7 @@ function asText(value, fallback = "") {
   return JSON.stringify(value);
 }
 
-function toScore(value, fallback = 70) {
+function toScore(value, fallback = null) {
   if (value === null || value === undefined || value === "") return fallback;
   const number = Number(value);
 
@@ -582,7 +582,10 @@ function normalizeMajors(raw) {
       categoryScores: evaluation?.category_scores ?? {},
       categoryCoverage: evaluation?.category_coverage_weight ?? (Array.isArray(evaluation?.indicator_details) ? evaluation.indicator_details.reduce((acc,d) => { if (Number.isInteger(d.rating)) acc[d.category] = (acc[d.category] || 0) + Number(d.weight || 0); return acc; }, {}) : {}),
       evidence: asText(evaluation?.evidence, ""),
-      improvement: asText(evaluation?.improvement, "")
+      improvement: asText(evaluation?.improvement, ""),
+      evidenceSources: asArray(evaluation?.evidence_sources).map(x => ({
+        grade: x.grade, source: asText(x.source), quote: asText(x.quote)
+      }))
     };
   });
 }
