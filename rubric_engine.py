@@ -155,6 +155,15 @@ def _split_activities(raw, grade):
         head = re.match(r"\[([^\]\n]+)\]\s*", block)
         label = head.group(1) if head else "기록"
         body = block[head.end():].strip() if head else block.strip()
+        # A pasted record can contain an explicit non-subject category inside
+        # a subject-labelled block. Never attribute such content to that subject.
+        embedded = re.match(
+            r"^(행동특성 및 종합의견|자율[·ㆍ]자치활동|동아리활동|진로활동)\s*[:：]\s*",
+            body,
+        )
+        if embedded and (label.startswith('과목:') or label == '기록'):
+            label = embedded.group(1)
+            body = body[embedded.end():].strip()
         if not body:
             continue
         for sentence in re.split(r"(?<=[.!?。])\s+|(?<=함\.)\s*|(?<=됨\.)\s*", body):
