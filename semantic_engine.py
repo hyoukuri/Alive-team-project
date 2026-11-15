@@ -66,7 +66,7 @@ def clean_facts(raw, sources):
     seen = set()
     if not isinstance(raw, list):
         return facts
-    for original_id, obj in enumerate(raw[:16]):
+    for original_id, obj in enumerate(raw):
         if not isinstance(obj, dict):
             continue
         try:
@@ -95,7 +95,7 @@ def _valid_ids(value, facts):
     if not isinstance(value, list):
         return []
     position = {fact["id"]: idx for idx, fact in enumerate(facts)}
-    return list(dict.fromkeys(position[v] for v in value if type(v) is int and v in position))[:12]
+    return list(dict.fromkeys(position[v] for v in value if type(v) is int and v in position))
 
 
 def _find_quote_facts(facts, quote):
