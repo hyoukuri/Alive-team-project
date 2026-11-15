@@ -1,40 +1,24 @@
-# SEEDU:ON — 필수 파일만 정리한 배포본
+# SEEDU:ON 로드맵 상세화 전체 배포본
 
-기준: 기존 로그인·회원가입·DB 저장·원래 분석 화면과 레이더 그래프를 보존한 복원 코드.
-이번 정리는 중복 파일과 사용하지 않는 임시 파일을 제거한 것입니다.
-AI 분석 품질 및 실서버 동작을 새롭게 보증하는 것은 아닙니다.
+**기준:** 앞서 제공한 18개 필수 파일 + 최상위 `index.html`/`vercel.json` (총 20개 파일). 기존 화면, 로그인, 레이더, 학과 평가 코드를 유지하며 로드맵 관련 코드만 개선했습니다.
 
-## 파일 구성
-- `main.py`: FastAPI 서버, 분석 및 로드맵 API
-- `accounts.py`, `storage.py`: 로그인·회원가입 및 기록 저장
-- `ai_semantic.py`, `semantic_engine.py`, `full_record_analysis.py`: 세특 분석
-- `rubric_engine.py`, `rubric_v2.py`: 역량·학과 평가
-- `frontend/index.html`, `script.js`, `style.css`, `seedu-fixes.css`: 원래 웹 화면
-- `frontend/vercel.json`: Vercel API 경로 설정
-- `requirements.txt`, `render.yaml`: Render 실행 설정
-- `.env.example`: 환경 변수 예시 (실제 비밀 키 아님)
-
-## 배포 설정
-Render: Root Directory 비움 / Branch main
-Build: `pip install -r requirements.txt`
-Start: `uvicorn main:app --host 0.0.0.0 --port $PORT`
-Environment: 기존 `OPENAI_API_KEY`, `OPENAI_MODEL`, `DATABASE_URL` 유지.
-기존 계정·저장 기록이 필요하다면 DATABASE_URL을 절대 지우지 마세요.
-
-Vercel: Root Directory `frontend` / Framework Other / Branch main
-별도의 Build Command, Output Directory는 설정하지 마세요.
-Vercel의 Root Directory를 `./`로 두면 이 구조와 맞지 않습니다.
+## 변경점
+- `rubric_engine.py`: 선택과목마다 학습 이유 제공; 심화 탐구 3개에 질문·4주 절차·수집 자료·검증 기준·산출물·후속 탐구 추가; 학년별 목표와 산출물 구분; OpenAI 사용 시 학생부 근거와 연결된 상세 계획 요청
+- `frontend/script.js`: 위 항목을 빠짐없이 읽어 긴 문장도 상세 항목별로 표시
+- `frontend/seedu-fixes.css`: 탐구활동은 세로 카드, 선택과목은 2열(모바일 1열), 줄바꿈/여백 보정
+- 기존 AI 키가 없거나 AI 호출 실패 시에도 학과 계열별 **구체적인 예시 계획**을 표시하고 개인화된 AI 분석으로 오인하지 않도록 표시
 
 ## GitHub 업로드
-압축을 풀고 **바깥 폴더가 아닌 안쪽 파일·폴더 전체**를 GitHub 저장소 최상위에 업로드하세요.
-기존 파일과 같은 경로는 덮어써지지만 **이름이 다른 옛 파일은 자동 삭제되지 않습니다.**
-GitHub에서 아래와 같은 구버전 중복 파일은 별도로 정리해야 합니다.
-- 최상위 `index.html`, `script.js`, `style.css`, `seedu-fixes.css`, `vercel.json`
-- `apply_main_patch.py`, `ai_reviewer.py` (현재 실행 경로에서 참조되지 않음)
-- 이전 임시 적용 안내 문서들
-`frontend/` 아래의 네 화면 파일과 `frontend/vercel.json`은 유지하세요.
-삭제 전에 저장소 백업을 권장합니다.
+압축 해제 후 **안의 파일과 폴더를 저장소 최상위에 업로드**하세요. ZIP 파일 자체를 올리면 안 됩니다.
+기존 18개 정리본과 최상위 2개 파일이 모두 포함되어 있으므로 이전 ZIP을 다시 합칠 필요 없습니다.
 
-## 검증 범위
-Python 파일 문법, JavaScript 문법, 필수 파일 구성 및 ZIP 무결성 검증.
-실제 Render·Vercel 배포와 OpenAI API, 로그인 DB 연결은 별도 확인 필요.
+## 배포
+- Vercel: Root Directory `./` (최상위), Framework `Other`. 최상위 `index.html`과 `vercel.json` 유지.
+- Render: Root Directory 비움, Build `pip install -r requirements.txt`, Start `uvicorn main:app --host 0.0.0.0 --port $PORT`.
+- Render 환경 변수 `OPENAI_API_KEY`, `OPENAI_MODEL`, `DATABASE_URL`을 그대로 유지하세요. 실제 키는 ZIP에 없습니다.
+
+## 범위와 한계
+- Python/JavaScript 문법, 3개 프로젝트 및 학년별 로드맵 응답 구조를 검사했습니다.
+- AI가 연결되지 않은 경우 제안은 학과 **계열 기반 예시**이며 세특 개별 문장을 해석한 개인화 추천이 아닙니다.
+- 실제 Vercel·Render 운영 배포, 계정 DB 연동, AI 생성 결과의 내용 정확성은 별도 확인이 필요합니다.
+- 선택과목은 교육과정 및 학교 개설 여부에 따라 다를 수 있습니다.

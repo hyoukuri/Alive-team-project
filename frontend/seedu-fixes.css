@@ -126,3 +126,26 @@
 #plan-results :is(h1,h2,h3,h4,p,li,span,strong,small) {max-width:100%!important;white-space:normal!important;overflow-wrap:anywhere!important;word-break:keep-all!important;line-height:1.65!important;}
 #plan-results :is(ul,ol) {max-width:100%!important;margin:8px 0!important;padding-left:1.5rem!important;}
 #plan-results .activity-number {display:inline-block!important;max-width:100%!important;}
+
+
+/* 상세 로드맵: 한 화면에서 읽기 쉬운 세로형 프로젝트 */
+#plan-results .roadmap-section-note {font-size:.92rem;line-height:1.7;color:#64748b;margin:0 0 16px;}
+#plan-results .roadmap-project {display:block!important;padding:22px!important;border:1px solid #dce5f1!important;border-radius:16px!important;background:#fff!important;box-shadow:0 3px 12px rgba(20,50,90,.045);}
+#plan-results .roadmap-project-heading {display:flex;align-items:flex-start;flex-wrap:wrap;gap:8px 12px;margin-bottom:14px;}
+#plan-results .roadmap-project-heading h3 {flex-basis:100%;font-size:1.15rem;line-height:1.5;margin:0;}
+#plan-results .roadmap-duration {font-size:.82rem;color:#51637a;line-height:1.6;}
+#plan-results .roadmap-detail-field {margin-top:13px;padding-top:12px;border-top:1px solid #e9eef5;min-width:0;}
+#plan-results .roadmap-detail-label {font-size:.89rem;font-weight:800;color:#24456c;line-height:1.6;margin:0 0 5px;}
+#plan-results .roadmap-detail-value {font-size:.94rem;color:#344054;line-height:1.75;margin:0;white-space:pre-wrap!important;}
+#plan-results .roadmap-detail-list {margin:0;padding-left:1.25rem;}
+#plan-results .roadmap-detail-list li,#plan-results .activity-steps li {font-size:.94rem;color:#344054;line-height:1.75;margin-bottom:6px;}
+#plan-results .grade-plan-item {padding:18px!important;border:1px solid #dce5f1;border-radius:12px;background:#fff;}
+#plan-results .grade-plan-item + .grade-plan-item {margin-top:12px!important;}
+#plan-results .grade-plan-item .roadmap-detail-field {margin-top:8px;}
+#plan-results .subject-list {display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:12px!important;}
+#plan-results .subject-item {padding:17px!important;}
+#plan-results .subject-item h3 {font-size:1rem;}
+#plan-results .subject-item .evidence {line-height:1.7;}
+#plan-results .activity-list {display:grid!important;grid-template-columns:minmax(0,1fr)!important;gap:18px!important;}
+#plan-results .roadmap-project * {min-width:0;max-width:100%;overflow-wrap:anywhere;word-break:keep-all;}
+@media(max-width:680px){#plan-results .subject-list{grid-template-columns:minmax(0,1fr)!important;}#plan-results .roadmap-project{padding:16px!important;}}

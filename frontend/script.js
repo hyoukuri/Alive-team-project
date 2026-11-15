@@ -756,17 +756,24 @@ function normalizeRoadmap(raw) {
     : { name: asText(item.subject ?? item.name ?? item.title, "추천 과목"), reason: asText(item.reason ?? item.description ?? item.detail, "") }
   );
   const activities = roadmapList(activityRaw).map((item, i) => typeof item === "string"
-    ? { title: item, description: "", steps: [], expectedResult: "" }
-    : { title: asText(item.title ?? item.name ?? item.activity, `탐구활동 ${i+1}`),
-        description: asText(item.description ?? item.detail ?? item.reason, ""),
-        steps: roadmapList(item.steps ?? item.process ?? item.actions ?? []).map(x => asText(x.name ?? x.action ?? x.step ?? x)),
-        expectedResult: asText(item.expected_result ?? item.expectedResult ?? item.output, "") }
+    ? { title:item, description:"", steps:[], expectedResult:"", recordConnection:"", researchQuestion:"", duration:"", dataToCollect:"", evaluation:"", extension:"" }
+    : { title:asText(item.title ?? item.name ?? item.activity, `탐구활동 ${i+1}`),
+        description:asText(item.description ?? item.detail ?? item.reason, ""),
+        steps:roadmapList(item.steps ?? item.process ?? item.actions ?? []).map(x => asText(x.name ?? x.action ?? x.step ?? x)),
+        expectedResult:asText(item.expected_result ?? item.expectedResult ?? item.output, ""),
+        recordConnection:asText(item.record_connection ?? item.recordConnection, ""),
+        researchQuestion:asText(item.research_question ?? item.researchQuestion, ""),
+        duration:asText(item.duration, ""),
+        dataToCollect:asText(item.data_to_collect ?? item.dataToCollect, ""),
+        evaluation:asText(item.evaluation, ""),
+        extension:asText(item.extension, "") }
   );
   const gradePlan = roadmapList(gradeRaw).map((item, i) => {
-    if (typeof item === "string") return {grade:i+1, goal:item, actions:[]};
+    if (typeof item === "string") return {grade:i+1, goal:item, actions:[], deliverable:""};
     return { grade:Number(item.grade) || Number(String(item.name ?? "").replace(/\D/g,"")) || i+1,
       goal:asText(item.goal ?? item.title ?? item.summary ?? item.name,""),
-      actions:roadmapList(item.actions ?? item.tasks ?? item.steps ?? []).map(x => asText(x.name ?? x.action ?? x.task ?? x)) };
+      actions:roadmapList(item.actions ?? item.tasks ?? item.steps ?? []).map(x => asText(x.name ?? x.action ?? x.task ?? x)),
+      deliverable:asText(item.deliverable ?? item.output, "") };
   });
   const advice = asText(data.advice ?? data.summary ?? data.final_advice ?? data.guidance, "");
   if (!subjects.length && !activities.length && !gradePlan.length && !advice) {
@@ -827,115 +834,93 @@ async function apiRequest(path, payload) {
 
 let selectedMajor = "";
 
-/* 로드맵 화면 출력 */
+/* 로드맵 화면 출력: 긴 탐구 계획은 한 줄 카드가 아닌 전체 너비 세로 카드 */
+function roadmapField(parent, title, value) {
+  if (!value || (Array.isArray(value) && !value.length)) return;
+  const field = el("div", "roadmap-detail-field");
+  field.append(el("h4", "roadmap-detail-label", title));
+  if (Array.isArray(value)) {
+    const list = el("ul", "roadmap-detail-list");
+    value.forEach(v => list.append(el("li", "", v)));
+    field.append(list);
+  } else {
+    field.append(el("p", "roadmap-detail-value", value));
+  }
+  parent.append(field);
+}
 
 function renderRoadmap(data) {
   planResults.replaceChildren();
-
+  const personalized = data.proposalMode === "ai_record_grounded_proposals";
   const intro = el("div", "result-intro");
   intro.append(
     el("p", "eyebrow", "SEEDU:ON · PERSONAL ROADMAP"),
     el("h2", "result-title", `${data.major || selectedMajor} 진로 로드맵`),
-    el("p", "muted", data.proposalMode === "ai_record_grounded_proposals" ? "학생부 기록과 희망 학과를 연계해 AI가 제안한 탐구 계획입니다." : "희망 학과의 계열별 탐구 예시입니다. 학생부 개인화 생성은 확인되지 않았습니다.")
+    el("p", "muted", personalized
+      ? "학생부에서 확인된 활동을 바탕으로 향후 수행할 탐구 계획을 제안합니다."
+      : "전공 분야별 탐구 설계 예시입니다. 학생부를 직접 해석한 개인화 결과는 아닙니다.")
   );
-
   planResults.append(intro);
 
-  // 1. 추천 선택과목
-  const subjectCard = card("추천 선택과목");
-
-  if (data.subjects.length === 0) {
-    subjectCard.append(
-      el("p", "muted", "추천 과목 정보가 없습니다.")
-    );
-  }
-
+  const subjectCard = card("추천 선택과목 · 왜 필요한가요?");
+  subjectCard.append(el("p", "roadmap-section-note", "실제 학교 개설 과목과 교육과정에 따라 과목명·선택 가능 여부가 달라질 수 있습니다."));
   const subjectList = el("div", "subject-list");
-
-  data.subjects.forEach((item) => {
+  data.subjects.forEach(item => {
     const box = el("div", "subject-item");
-    box.append(
-      el("h3", "", item.name),
-      el("p", "evidence", item.reason)
-    );
+    box.append(el("h3", "", item.name));
+    if (item.reason) box.append(el("p", "evidence", item.reason));
     subjectList.append(box);
   });
-
-  if (data.subjects.length > 0) subjectCard.append(subjectList);
-
+  subjectCard.append(data.subjects.length ? subjectList : el("p", "muted", "추천 과목 정보가 없습니다."));
   planResults.append(subjectCard);
 
-  // 2. 탐구활동 3개
-  const activityCard = card("추천 심화 탐구활동 TOP 3");
+  const activityCard = card("심화 탐구활동 TOP 3 · 실행 계획");
+  activityCard.append(el("p", "roadmap-section-note", "각 활동은 연구 질문 → 수행 절차 → 검증 → 결과물 순서로 설계했습니다. 이미 수행한 활동으로 기록하지 마세요."));
   const activityList = el("div", "activity-list");
-
-  data.activities.slice(0, 3).forEach((item, i) => {
-    const box = el("div", "activity-item");
-
-    box.append(
-      el("span", "activity-number", `PROJECT 0${i + 1}`),
-      el("h3", "", item.title),
-      el("p", "evidence", item.description)
-    );
-
-    if (item.steps.length > 0) {
+  data.activities.slice(0,3).forEach((item,i) => {
+    const box = el("article", "activity-item roadmap-project");
+    const heading = el("div", "roadmap-project-heading");
+    heading.append(el("span", "activity-number", `PROJECT 0${i+1}`),el("h3", "", item.title));
+    if (item.duration) heading.append(el("span", "roadmap-duration", item.duration));
+    box.append(heading);
+    roadmapField(box, "기록과 연결되는 이유", item.recordConnection);
+    roadmapField(box, "핵심 탐구 질문", item.researchQuestion);
+    roadmapField(box, "탐구 목적", item.description);
+    if (item.steps.length) {
+      const field = el("div", "roadmap-detail-field");
+      field.append(el("h4", "roadmap-detail-label", "구체적인 수행 절차"));
       const list = el("ol", "activity-steps");
-
-      item.steps.forEach((step) => {
-        list.append(el("li", "", step));
-      });
-
-      box.append(list);
+      item.steps.forEach(step => list.append(el("li", "", step)));
+      field.append(list);
+      box.append(field);
     }
-
-    if (item.expectedResult) {
-      box.append(
-        el("p", "expected-result", `예상 산출물: ${item.expectedResult}`)
-      );
-    }
-
+    roadmapField(box, "수집·측정할 자료", item.dataToCollect);
+    roadmapField(box, "결과 검증 기준", item.evaluation);
+    roadmapField(box, "최종 산출물", item.expectedResult);
+    roadmapField(box, "다음 심화 탐구", item.extension);
     activityList.append(box);
   });
-
-  if (data.activities.length > 0) activityCard.append(activityList);
-
-  if (data.activities.length === 0) {
-    activityCard.append(
-      el("p", "muted", "추천 탐구활동 정보가 없습니다.")
-    );
-  }
-
+  activityCard.append(data.activities.length ? activityList : el("p", "muted", "추천 탐구활동 정보가 없습니다."));
   planResults.append(activityCard);
 
-  // 3. 학년별 성장 로드맵
   const gradeCard = card("학년별 성장 로드맵");
-
-  if (!data.gradePlan.length) gradeCard.append(el("p", "muted", "학년별 계획 정보는 응답에 포함되지 않았습니다."));
-  data.gradePlan.forEach((item) => {
+  if (!data.gradePlan.length) gradeCard.append(el("p", "muted", "학년별 계획 정보가 없습니다."));
+  data.gradePlan.forEach(item => {
     const box = el("div", "grade-plan-item");
-
-    box.append(
-      el("h3", "", `${item.grade}학년 · ${item.goal}`)
-    );
-
-    const list = el("ul", "grade-actions");
-
-    item.actions.forEach((action) => {
-      list.append(el("li", "", action));
-    });
-
-    box.append(list);
+    box.append(el("h3", "", `${item.grade}학년 · ${item.goal}`));
+    if (item.actions.length) {
+      const list = el("ul", "grade-actions");
+      item.actions.forEach(action => list.append(el("li", "", action)));
+      box.append(list);
+    }
+    roadmapField(box,"학년별 목표 산출물",item.deliverable);
     gradeCard.append(box);
   });
-
   planResults.append(gradeCard);
 
-  // 4. 종합 조언
   if (data.advice) {
-    const adviceCard = card("AI 진로 코칭");
-    adviceCard.append(
-      el("p", "advice-text", data.advice)
-    );
+    const adviceCard = card("AI 진로 코칭 · 확인할 점");
+    adviceCard.append(el("p", "advice-text", data.advice));
     planResults.append(adviceCard);
   }
 }

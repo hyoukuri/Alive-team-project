@@ -362,93 +362,229 @@ def _roadmap_domain(major):
       ("반례와 개선안 도출", "관측 결과를 반박하는 사례를 검토합니다.", ["반례 탐색", "원인 정리", "대안 제안"], "검증·개선 보고서")]
 
 
-def _ai_propose_roadmap(major, grade, chunks, fallback_projects):
-    """Generate forward-looking record-specific research proposals.
+def _record_link_for_roadmap(chunks, major):
+    """Conservatively connect source labels; generic actions are not evidence."""
+    broad = {'분석','모델','제작','설계','운동','실험','학습','정보','그래프','연구','조사','활용','데이터','관심'}
+    terms = {str(t).casefold() for t in MAJORS.get(major,set()) if len(str(t)) >= 2 and str(t) not in broad}
+    related = [r for r in chunks if any(t in r['text'].casefold() for t in terms)]
+    text_all = ' '.join(r['text'] for r in chunks)
+    topic = None
+    if ('기계' in major or '건축' in major) and '지진' in text_all:
+        topic = '지진·구조물'
+        related = [r for r in chunks if '지진' in r['text']]
+    elif ('화학' in major or '환경' in major) and ('중화' in text_all or '산성비' in text_all):
+        topic = '산성화·중화'
+        related = [r for r in chunks if '중화' in r['text'] or '산성비' in r['text']]
+    elif ('국어' in major or '문학' in major) and ('탱자나무' in text_all or '작가의 의도' in text_all):
+        topic = '문학 작품 해석'
+        related = [r for r in chunks if '탱자나무' in r['text'] or '작가의 의도' in r['text']]
+    if not related:
+        return '학생부에서 이 학과와 직접 연결되는 활동은 아직 확인되지 않았습니다. 다음 탐구는 신규 제안입니다.', False, None
+    best = related[0]
+    note = f"{best['grade']}학년 {best['source']} 기록을 출발점으로 삼는 후속 탐구 제안입니다. 이미 수행한 활동이 아닙니다."
+    return note, True, topic
 
-    Do not fabricate completed activities; if API is unavailable, return None.
-    The caller will use the clearly labeled subject-domain proposals.
-    """
+
+def _topic_project(topic):
+    """First follow-up project is grounded in a confirmed topic, never fabricated as done."""
+    if topic == '지진·구조물':
+        return ('건물 모형의 높이와 보강 방식에 따른 진동 안정성 비교',
+            '진원지 탐구에서 지진의 위치를 다뤘다면, 후속 탐구로 건물 모형의 구조에 따른 진동 반응을 비교합니다. 안전한 소형 종이 모형을 사용합니다.',
+            ['독립변인: 건물 모형 높이 또는 보강 방식, 종속변인: 흔들림 폭과 넘어짐 여부',
+             '동일한 바닥·흔들림 횟수·재료 조건에서 모형별로 3회 이상 측정',
+             '모형별 흔들림 결과를 표·그래프로 나타내고 안정성 차이를 해석'],
+            '모형 설계도·반복 측정표·진동 안정성 비교 보고서')
+    if topic == '산성화·중화':
+        return ('산성화된 물의 중화 조건을 공개 실험자료로 비교',
+            '학생부의 산성화·중화 탐구를 확장해 중화제 종류·투입량과 pH 변화의 관계를 공개 자료로 분석합니다.',
+            ['독립변인: 중화제 종류 또는 투입량, 종속변인: pH 변화량',
+             '공개 교육용 실험자료에서 초기 pH·투입량·측정 방법이 유사한 사례 수집',
+             '중화 전후 pH와 과량 투입 사례를 그래프로 비교하고 자료의 한계 검토'],
+            '중화 조건별 pH 비교표·그래프·자료 검증 보고서')
+    if topic == '문학 작품 해석':
+        return ('문학 작품의 상징 표현과 독자 해석 비교',
+            '학생부에서 다룬 작품의 상징·서술 방식을 출발점으로 삼아 두 작품의 표현 효과와 해석 차이를 비교합니다.',
+            ['두 작품에서 상징 표현을 3개 이상 선정하고 인용 근거를 정리',
+             '화자·서술자·시대 배경과 상징의 의미를 같은 분석 기준으로 비교',
+             '해석의 공통점·차이와 반례를 검토해 근거 중심 비평문 작성'],
+            '작품 비교표·근거 인용 목록·비평문')
+    return None
+
+
+def _enrich_project(major, row, idx, record_link, grade):
+    """Concrete and distinct fallback project design when AI is unavailable."""
+    item = dict(row)
+    steps = list(item.get('steps') or [])
+    while len(steps) < 3:
+        steps.append('자료를 검토하고 결과를 표·그래프로 정리한 뒤 한계를 기술합니다.')
+    item['steps'] = [
+        '1주차 · 탐구 질문과 비교 조건 확정 — ' + steps[0],
+        '2주차 · 자료 수집 및 반복 수행 — ' + steps[1],
+        '3주차 · 결과 분석 및 시각화 — ' + steps[2],
+        '4주차 · 검증·보고서 작성 — 조건별 결과의 차이, 오류 원인, 다음 탐구 방향을 정리합니다.',
+    ]
+    item['record_connection'] = record_link
+    item['research_question'] = [
+        f"{item['title']}에서 어떤 조건이 관측 결과를 가장 크게 바꾸는가?",
+        f"{item['title']}의 관측값은 반복 측정해도 같은 경향을 보이는가?",
+        f"{item['title']}의 결론은 다른 조건이나 자료에도 적용되는가?",
+    ][idx % 3]
+    item['duration'] = '4주 권장 · 주 1~2회 진행'
+    item['data_to_collect'] = [
+        '독립변인·종속변인·통제변인 정의표, 조건별 관측값, 반복 측정 기록',
+        '자료 출처·측정 단위·표본 수, 조건별 평균과 변동 폭',
+        '초기 결과와 추가 검증 결과, 예외 사례 및 오차 요인',
+    ][idx % 3]
+    item['evaluation'] = [
+        '조건을 통제했는지, 반복 측정이 충분한지, 그래프가 주장과 일치하는지 점검',
+        '같은 절차를 반복했을 때 결과가 재현되는지, 자료 출처가 신뢰 가능한지 점검',
+        '반례가 있는지, 비교 기준을 동일하게 유지했는지, 한계를 명시했는지 점검',
+    ][idx % 3]
+    item['extension'] = [
+        '실험 조건을 한 가지 더 늘려 결과가 달라지는 경계 조건을 찾아봅니다.',
+        '측정 방식을 바꾸거나 공개 데이터를 추가해 결과를 교차 검증합니다.',
+        '관찰된 한계를 보완한 설계안을 만들고 기존 결과와 비교합니다.',
+    ][idx % 3]
+    return item
+
+
+def _subject_reason(subject, major):
+    reasons = {
+        '대수':'변수 사이 관계를 식과 그래프로 모델링해 탐구 결과를 설명하는 기초를 쌓습니다.',
+        '미적분':'변화율·누적량을 이용해 운동, 반응, 성장 등 시간에 따른 현상을 정량 분석합니다.',
+        '물리학':'힘·운동·에너지 개념을 활용해 측정 결과와 이론적 예측을 비교합니다.',
+        '화학':'물질의 성질과 반응 원리를 활용해 조건에 따른 실험 결과를 해석합니다.',
+        '생명과학':'생명 현상의 원리와 변인 관계를 이해하고 자료 해석에 적용합니다.',
+        '확률과 통계':'표본, 평균, 산포와 오차를 이용해 탐구 결과의 신뢰도를 판단합니다.',
+        '정보':'데이터 정리·시각화 및 간단한 프로그램 구현을 통해 탐구 과정을 재현합니다.',
+        '사회와 문화':'사회 현상을 조사할 때 개념·변인·표본·관점의 차이를 구분합니다.',
+        '경제':'경제적 의사결정과 지표 변화를 분석하는 이론적 토대를 마련합니다.',
+        '독서와 작문':'원문 근거를 정리하고 논리적인 탐구 보고서와 비평문을 작성합니다.',
+        '세계사':'작품·사건·제도의 시대적 맥락을 비교하여 해석을 심화합니다.',
+    }
+    return reasons.get(subject, f"{major}와 연계한 탐구의 개념·방법을 익히고 교과 학습을 수행 기록으로 발전시킵니다.")
+
+
+def _grade_roadmap(grade, projects, major):
+    titles = [x['title'] for x in projects]
+    plan = []
+    for g in range(grade, 4):
+        if g == 1:
+            goal = '관심 분야 구체화와 교과 개념을 활용한 첫 탐구 설계'
+            actions = [f"{major}와 관련된 핵심 개념 2~3개를 교과서에서 정리하고 질문을 만듭니다.",
+                       f"‘{titles[0]}’을 출발 주제로 삼아 변인·비교 기준을 정합니다.",
+                       '탐구 일지에 자료 출처, 조사 방법, 처음 예상과 실제 관찰을 기록합니다.']
+            result = '탐구 계획서 1부 + 기초 자료표 + 활동 성찰 기록'
+        elif g == 2:
+            goal = '변인 통제·반복 검증으로 탐구의 신뢰도 높이기'
+            actions = [f"‘{titles[min(1,len(titles)-1)]}’을 수행하고 조건별 결과를 최소 3회 비교합니다.",
+                       '교과 개념을 근거로 결과를 해석하고 오차·예외 사례를 따로 정리합니다.',
+                       '선행 탐구와 비교해 무엇을 개선했는지 표와 그래프로 제시합니다.']
+            result = '심화 탐구 보고서 + 결과 그래프 + 오차 분석표'
+        else:
+            goal = '독립적인 심화 주제와 검증 가능한 결론 완성'
+            actions = [f"‘{titles[min(2,len(titles)-1)]}’을 중심으로 새로운 가설을 세웁니다.",
+                       '기존 자료와 추가 자료를 비교해 결론의 재현성·한계를 검토합니다.',
+                       '후속 질문과 전공 연계성을 발표 자료로 정리하고 피드백을 반영합니다.']
+            result = '최종 연구 보고서 + 발표 자료 + 후속 탐구 제안서'
+        plan.append({'grade':g,'goal':goal,'actions':actions,'deliverable':result})
+    return plan
+
+
+def _ai_propose_roadmap(major, grade, chunks, fallback_projects):
+    """Return detailed student-record-grounded proposals, or None if unavailable."""
     import json
     import os
-    key = os.getenv("OPENAI_API_KEY", "").strip()
-    model = os.getenv("OPENAI_MODEL", "").strip()
+    key = os.getenv('OPENAI_API_KEY','').strip()
+    model = os.getenv('OPENAI_MODEL','').strip()
     if not key or not model:
         return None
     try:
         from openai import OpenAI
-        # Keep distinct sources and enough actual text to link the proposal to the student.
-        seen = set()
-        excerpts = []
+        seen, excerpts = set(), []
         for row in chunks:
-            source = (row.get("grade"), row.get("source"))
-            if source in seen: continue
-            seen.add(source)
-            excerpts.append(f"[{row['grade']}학년 {row['source']}] {row['text'][:450]}")
-            if sum(map(len, excerpts)) > 5600: break
-        record_excerpt = "\n".join(excerpts) or "학생부 원문 제공되지 않음"
+            signature = (row.get('grade'),row.get('source'),row.get('text'))
+            if signature in seen: continue
+            seen.add(signature)
+            excerpts.append(f"[{row['grade']}학년 {row['source']}] {row['text'][:650]}")
+            if sum(map(len,excerpts)) > 6500: break
+        record_excerpt = '\n'.join(excerpts) or '학생부 원문 없음'
         examples = json.dumps(fallback_projects, ensure_ascii=False)
         prompt = (f"희망 학과: {major}; 현재 학년: {grade}.\n"
-          f"학생부 관찰 기록(이미 한 활동은 여기에서만 판단):\n{record_excerpt}\n"
-          f"학과별 기초 프로젝트 예시(참고만 하고 반복하지 않아도 됨): {examples}\n"
-          "앞으로 수행할 실제적이고 서로 다른 심화 탐구활동 정확히 3개를 제안해. "
-          "기존 학생부에서 실제로 확인된 주제와 각 새 제안을 연결하되 없으면 '직접적인 연계 근거 부족'이라고 밝혀. "
-          "변수·비교 기준·실행 방법·과목 지식·산출물을 각 주제별로 명확하게 쓰고 일반적인 단계 반복은 금지. "
-          "의료·위험 실험은 제안하지 말 것. 기존에 수행했다고 허위로 쓰지 말 것. "
-          "한국어 JSON 객체만 반환: {\"activities\":[{\"title\":\"\",\"description\":\"\",\"steps\":[\"\",\"\",\"\"],\"expected_result\":\"\"}],\"basis_note\":\"\"}."
+            f"실제 학생부 기록(수행 완료 여부는 이 기록에서만 확인):\n{record_excerpt}\n"
+            f"참고 가능한 프로젝트: {examples}\n"
+            "한국 고등학생이 앞으로 실행할 수 있는 서로 다른 심화 탐구 정확히 3개를 설계하세요. "
+            "각 주제는 학생부에서 확인된 활동과 연결하고, 관련 기록이 없으면 '직접적인 연계 근거 없음'이라고 쓰세요. "
+            "주제마다 ① 기록과 연결되는 이유(record_connection) ② 검증 가능한 연구 질문(research_question) "
+            "③ 목적·배경(description) ④ 4~5개의 구체적인 순차 수행 단계(steps; 각 단계에 무엇을 어떻게 하는지) "
+            "⑤ 측정·수집 자료(data_to_collect) ⑥ 검증 기준(evaluation) ⑦ 산출물(expected_result) "
+            "⑧ 후속 심화 방향(extension)을 제공하세요. 모든 내용은 학과별로 구체적이어야 하며, "
+            "기존에 수행했다고 허위로 쓰지 마세요. 위험하거나 의료적인 실험을 제안하지 마세요. "
+            "출력은 한국어 JSON 객체만: {\"activities\":[{\"title\":\"\",\"record_connection\":\"\",\"research_question\":\"\",\"description\":\"\",\"steps\":[\"\",\"\",\"\",\"\"],\"data_to_collect\":\"\",\"evaluation\":\"\",\"expected_result\":\"\",\"extension\":\"\"}],\"basis_note\":\"\"}."
         )
-        client = OpenAI(api_key=key, timeout=45)
+        client = OpenAI(api_key=key, timeout=50)
         result = client.chat.completions.create(
             model=model,
-            messages=[{"role":"system","content":"한국 고등학생의 진로 탐구를 돕는 교육 설계자. 입력 자료에 없는 활동 성과를 절대 지어내지 말 것."},
-                      {"role":"user","content":prompt}],
-            response_format={"type":"json_object"}, max_completion_tokens=1800,
+            messages=[{'role':'system','content':'한국 고등학생 진로 탐구 설계 전문가. 기록에 없는 학생 성과를 만들지 말고 미래의 제안으로 서술하세요.'},
+                      {'role':'user','content':prompt}],
+            response_format={'type':'json_object'}, max_completion_tokens=3500,
         )
-        raw = result.choices[0].message.content
-        data = json.loads(raw)
-        acts = data.get("activities", [])
+        data = json.loads(result.choices[0].message.content)
+        acts = data.get('activities',[])
         if not isinstance(acts,list) or len(acts)!=3: return None
-        validated = []
+        validated=[]
         for row in acts:
             if not isinstance(row,dict): return None
             title=str(row.get('title') or '').strip()
             desc=str(row.get('description') or '').strip()
             steps=row.get('steps',[])
             expected=str(row.get('expected_result') or '').strip()
-            if not title or not desc or not expected or not isinstance(steps,list) or len(steps)<2: return None
-            validated.append({'title':title[:120], 'description':desc[:600],
-                         'steps':[str(x)[:180] for x in steps[:5]],'expected_result':expected[:200]})
-        return validated,str(data.get('basis_note') or '').strip()[:300]
+            if not title or not desc or not expected or not isinstance(steps,list) or len(steps)<3: return None
+            validated.append({
+                'title':title[:140], 'description':desc[:900],
+                'steps':[str(x)[:260] for x in steps[:6]],
+                'expected_result':expected[:400],
+                'record_connection':str(row.get('record_connection') or '')[:450],
+                'research_question':str(row.get('research_question') or '')[:450],
+                'data_to_collect':str(row.get('data_to_collect') or '')[:500],
+                'evaluation':str(row.get('evaluation') or '')[:450],
+                'extension':str(row.get('extension') or '')[:450],
+                'duration':'약 4~6주 · 학생 일정에 맞게 조정',
+            })
+        return validated,str(data.get('basis_note') or '').strip()[:400]
     except Exception:
-        # Backend never exposes API keys or raw student-record text via exceptions.
         return None
 
 
 def make_roadmap(major, grade, records, text):
-    """Concrete, forward-looking exploration suggestions; no fictional prior achievements."""
-    major = str(major or "").strip()
-    if not major: raise ValueError("희망 학과를 선택해 주세요.")
-    grade = max(1,min(2,int(grade or 1)))
-    chunks = _record_chunks(records,text)
-    terms = MAJORS.get(major,set())
-    related = [x for x in chunks if any(str(k).casefold() in x['text'].casefold() for k in terms)]
-    # A broad generic word such as '학습' is not enough to claim major-specific evidence.
-    source = related[0]['source'] if related else None
-    status = "related_record_found" if related else "evidence_not_confirmed"
-    subjects, activities = _roadmap_domain(major)
-    project_rows = [{"title":title, "description":description, "steps":steps,"expected_result":output}
-                    for title,description,steps,output in activities]
-    ai_result = _ai_propose_roadmap(major, grade, chunks, project_rows)
+    """Provide detailed actionable roadmap, labeling AI vs subject-domain fallback."""
+    major=str(major or '').strip()
+    if not major: raise ValueError('희망 학과를 선택해 주세요.')
+    grade=max(1,min(2,int(grade or 1)))
+    chunks=_record_chunks(records,text)
+    record_link, has_related, topic = _record_link_for_roadmap(chunks, major)
+    subjects,activities=_roadmap_domain(major)
+    if topic:
+        activities = [_topic_project(topic)] + list(activities[1:])
+    project_rows=[_enrich_project(major,{
+        'title':title,'description':description,'steps':steps,'expected_result':output
+    },idx,record_link,grade) for idx,(title,description,steps,output) in enumerate(activities)]
+    ai_result=_ai_propose_roadmap(major,grade,chunks,project_rows)
     if ai_result:
-        project_rows, basis_note = ai_result
-        proposal_mode = "ai_record_grounded_proposals"
+        project_rows,basis_note=ai_result
+        proposal_mode='ai_record_grounded_proposals'
     else:
-        basis_note = ""
-        proposal_mode = "subject_domain_proposals"
-    intro = (f"학생부의 '{source}' 기록에서 관련 주제가 탐색되었습니다. 실제 연계 타당성은 원문을 확인하세요."
-             if source else f"입력 기록에서 {major}의 직접적인 활동 근거를 찾지 못했습니다. 아래는 앞으로 시도할 수 있는 입문 탐구 제안입니다.")
-    return {"rubric_version":VERSION,"analysis_mode":proposal_mode,"major":major,
-      "evidence_status":status,
-      "recommended_subjects":[{"subject":s,"reason":f"{major} 진로 탐색과 관련된 과목입니다. 학교 개설 과목을 확인하세요."} for s in subjects],
-      "research_activities":project_rows,
-      "grade_plan":[{"grade":g,"goal":"진로 관련 교과 탐구와 수행 근거 확보" if g==grade else "변수·자료를 확장한 후속 검증", "actions":["탐구 질문·변수 설정","자료 수집과 수행 과정 기록","결과 비교 및 수정"]} for g in range(grade,4)],
-      "advice":intro+ (" AI 연결 근거: " + basis_note if basis_note else "") + " 탐구활동은 이미 수행했다고 단정하는 기록이 아니라, 향후 실행을 위한 제안입니다."}
+        basis_note=''
+        proposal_mode='subject_domain_proposals'
+    return {
+        'rubric_version':VERSION, 'analysis_mode':proposal_mode,'major':major,
+        'evidence_status':'related_record_found' if has_related else 'evidence_not_confirmed',
+        'recommended_subjects':[{'subject':subject,'reason':_subject_reason(subject,major)} for subject in subjects],
+        'research_activities':project_rows,
+        'grade_plan':_grade_roadmap(grade,project_rows,major),
+        'advice':(
+            f"{major}에 맞는 탐구 주제를 학생부 기록과 연결하여 제안했습니다. " if has_related
+            else f"학생부에서 {major}의 직접적인 관련 활동이 확인되지 않았으므로 전공 기초 탐구부터 제안합니다. "
+        ) + (('AI 연계 근거: '+basis_note+' ') if basis_note else '') +
+            '추천 선택과목은 학교별 개설 여부와 실제 교육과정을 확인하세요. 모든 탐구활동은 앞으로 수행할 계획이며, 이미 수행한 활동이 아닙니다.'
+    }
