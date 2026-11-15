@@ -327,67 +327,128 @@ def analyze_records(records, text, grade):
             "assessment_notice":"AI를 호출하지 않은 어휘·행동 규칙 기반 참고 평가입니다. 실제 역량·대학 합격 가능성을 측정하지 않으며, 미평가 지표는 점수에 포함하지 않습니다."}
 
 
-def make_roadmap(major, grade, records, text):
-    """학과+입력된 학습 주제에 맞는 단계형 탐구 3개.
+def _roadmap_domain(major):
+    groups = [
+      (("기계", "로봇", "자동차", "항공"), ["대수", "미적분", "물리학"], [
+       ("종이 보의 단면 구조에 따른 처짐량 비교", "같은 길이·재료의 종이를 서로 다른 단면 형태로 접어 중앙에 동일한 하중을 걸어 처짐량을 측정합니다.", ["독립변인: 단면 형태, 종속변인: 처짐량", "하중·지지 간격·재료를 통제하여 3회 이상 반복 측정", "평균 처짐량 그래프를 작성하고 굽힘 강성 개념과 비교"], "단면별 처짐량 표·그래프·구조 해석"),
+       ("경사면 각도에 따른 물체 이동 시간 분석", "경사각을 단계별로 바꾸고 같은 물체가 일정 거리를 이동하는 시간을 측정해 가속도와 마찰의 영향을 검토합니다.", ["독립변인: 경사각, 종속변인: 이동 시간", "동일 물체·거리·표면 조건으로 반복 측정", "예측과 관측의 차이를 정리하고 마찰·측정 오차 분석"], "경사각-이동시간 그래프·오차 분석표"),
+       ("실내 환기장치의 팬 속도와 공기 흐름 비교", "안전한 소형 팬의 속도 조건을 바꾸고 일정 위치에서 종이 리본의 이동이나 풍속 센서 수치를 비교합니다.", ["관측 기준과 측정 지점을 고정", "팬의 속도·거리별 변화 측정", "소음·에너지 소비·기류 개선 효과의 상충 관계 정리"], "측정 기록·환기장치 개선 설계안")]),
+      (("인공지능", "컴퓨터", "소프트웨어", "정보보안", "데이터", "통계"), ["대수", "확률과 통계", "정보"], [
+       ("학교 생활 데이터의 특성 분석", "공개 또는 익명화된 학교 생활 데이터를 정리하여 변수별 분포와 이상값을 비교합니다.", ["데이터 출처·익명화 기준 확인", "빈도·평균·분포 시각화", "누락값·표본 편향 점검"], "변수별 시각화·데이터 품질 보고서"),
+       ("간단한 예측모형과 기준모형 비교", "같은 데이터에서 평균값 예측과 간단한 회귀모형을 비교하고 오차를 계산합니다.", ["학습·검증 데이터 구분", "두 예측 방식 구현", "평균절대오차 비교"], "예측 결과표·오차 비교 그래프"),
+       ("데이터 편향이 예측에 미치는 영향 검증", "표본 구성을 바꾸었을 때 예측 결과가 얼마나 달라지는지 실험합니다.", ["집단별 표본 비율 확인", "표본 균형 전후 모델 비교", "편향의 한계와 개선안 기록"], "편향 비교표·개선 제안서")]),
+      (("화학", "생명", "의", "약", "간호", "보건", "식품"), ["화학", "생명과학", "확률과 통계"], [
+       ("생활 속 생물·화학 현상의 변수 정하기", "안전한 공개 데이터에서 온도·시간과 반응 또는 생장 지표의 관계를 탐색합니다.", ["관측 가능한 변수 2개 선정", "공개 데이터 출처 검증", "변수 관계 그래프 구성"], "변수 설계표·자료 출처 목록"),
+       ("서로 다른 조건의 실험자료 비교", "기존 실험·관측 데이터를 조건별로 나눠 평균과 분산을 비교합니다.", ["동일 조건 데이터 확보", "조건별 통계 계산", "교란 요인·표본 수 확인"], "조건별 비교표·해석 보고서"),
+       ("결론의 재현성과 한계 검토", "서로 다른 공개자료에서 같은 경향이 나타나는지 검토합니다.", ["추가 자료 확보", "분석 기준 동일화", "다른 결과가 나올 경우 원인 기록"], "자료 간 비교 보고서")]),
+      (("경제", "경영", "금융", "회계", "사회", "정치", "법", "행정", "복지"), ["사회와 문화", "경제", "확률과 통계"], [
+       ("지역별 생활 지표의 차이 분석", "공공 통계를 이용해 지역별 한 가지 생활 지표의 격차를 비교합니다.", ["지표 정의와 기준 연도 통일", "지역별 자료 수집", "격차 시각화와 원인 가설 정리"], "통계 그래프·원인 가설 보고서"),
+       ("정책 사례의 이해관계 비교", "같은 사회 문제에 대한 서로 다른 정책 접근을 비교합니다.", ["정책 목표·수단 정리", "이해관계자별 이득·비용 비교", "공개 근거로 주장 검증"], "정책 비교표·쟁점 분석"),
+       ("개선안의 실행 가능성 검토", "제안한 대안을 비용·형평성·지속가능성 기준으로 평가합니다.", ["평가 기준 명시", "정책 대안 2개 비교", "한계와 후속 검토 항목 제시"], "정책 제안서·평가표")]),
+      (("국어", "문학", "언어", "교육", "철학", "역사", "미디어", "광고"), ["독서와 작문", "사회와 문화", "세계사"], [
+       ("동일 주제의 작품·기사 관점 비교", "같은 사회적 주제를 다룬 두 텍스트를 선정해 표현 방식과 논거를 비교합니다.", ["텍스트 두 편과 선정 기준 제시", "핵심 주장·서술 방식 표로 비교", "시대·저자 맥락의 영향 분석"], "작품·기사 비교표"),
+       ("독자 반응과 해석의 차이 조사", "두 가지 해석에 대한 근거를 찾아 타당성을 비교합니다.", ["해석별 원문 근거 수집", "상반된 견해 분석", "근거가 부족한 주장 구별"], "근거 중심 비평문"),
+       ("기존 해석의 반론 구성", "기존 해석에 대한 반례를 검토하고 수정된 해석을 제시합니다.", ["반론·반례 찾기", "기존 주장 수정", "동료 피드백 반영"], "수정 비평문·피드백 기록")]),
+      (("디자인", "영상", "음악", "무용", "체육", "스포츠", "미술", "애니"), ["관련 예술·체육 선택과목", "진로 관련 실습", "융합 선택과목"], [
+       ("표현 방식에 따른 전달 효과 비교", "같은 주제의 표현 방식을 두 가지로 구성해 비교합니다.", ["표현 목표와 대상 정하기", "시안 또는 실습 기록 제작", "피드백 항목 설계"], "시안 2종·비교표"),
+       ("대상별 사용자 반응 조사", "자발적 참여자의 피드백을 익명으로 수집해 비교합니다.", ["사전 동의와 익명성 확보", "반응 항목별 정리", "차이가 난 원인 분석"], "반응 요약표"),
+       ("수정안의 효과 검토", "피드백을 반영한 수정안의 전달 효과를 평가합니다.", ["수정 사항 기록", "동일 기준 재평가", "최종 결과·한계 정리"], "개선 전후 비교 보고서")]),
+    ]
+    for names,subjects,activities in groups:
+        if any(word in major for word in names): return subjects, activities
+    return ["관련 기초 교과", "탐구 과목", "융합 선택과목"], [
+      ("희망 분야의 핵심 현상 정량화", "관찰 가능한 현상을 하나 정해 변수를 명확히 정의합니다.", ["관찰 대상 선정", "변수와 단위 정의", "공개 자료 확보"], "변수 정의서"),
+      ("조건별 차이 검증", "조건 두 가지에서 관측 결과가 어떻게 달라지는지 비교합니다.", ["조건별 자료 확보", "관측 기준 통일", "차이 그래프 작성"], "비교 결과표"),
+      ("반례와 개선안 도출", "관측 결과를 반박하는 사례를 검토합니다.", ["반례 탐색", "원인 정리", "대안 제안"], "검증·개선 보고서")]
 
-    기록에 없는 활동을 수행했다고 주장하지 않는다. 정보 부족은
-    평가 점수가 아닌 향후 탐색 계획으로 돌려준다.
+
+def _ai_propose_roadmap(major, grade, chunks, fallback_projects):
+    """Generate forward-looking record-specific research proposals.
+
+    Do not fabricate completed activities; if API is unavailable, return None.
+    The caller will use the clearly labeled subject-domain proposals.
     """
+    import json
+    import os
+    key = os.getenv("OPENAI_API_KEY", "").strip()
+    model = os.getenv("OPENAI_MODEL", "").strip()
+    if not key or not model:
+        return None
+    try:
+        from openai import OpenAI
+        # Keep distinct sources and enough actual text to link the proposal to the student.
+        seen = set()
+        excerpts = []
+        for row in chunks:
+            source = (row.get("grade"), row.get("source"))
+            if source in seen: continue
+            seen.add(source)
+            excerpts.append(f"[{row['grade']}학년 {row['source']}] {row['text'][:450]}")
+            if sum(map(len, excerpts)) > 5600: break
+        record_excerpt = "\n".join(excerpts) or "학생부 원문 제공되지 않음"
+        examples = json.dumps(fallback_projects, ensure_ascii=False)
+        prompt = (f"희망 학과: {major}; 현재 학년: {grade}.\n"
+          f"학생부 관찰 기록(이미 한 활동은 여기에서만 판단):\n{record_excerpt}\n"
+          f"학과별 기초 프로젝트 예시(참고만 하고 반복하지 않아도 됨): {examples}\n"
+          "앞으로 수행할 실제적이고 서로 다른 심화 탐구활동 정확히 3개를 제안해. "
+          "기존 학생부에서 실제로 확인된 주제와 각 새 제안을 연결하되 없으면 '직접적인 연계 근거 부족'이라고 밝혀. "
+          "변수·비교 기준·실행 방법·과목 지식·산출물을 각 주제별로 명확하게 쓰고 일반적인 단계 반복은 금지. "
+          "의료·위험 실험은 제안하지 말 것. 기존에 수행했다고 허위로 쓰지 말 것. "
+          "한국어 JSON 객체만 반환: {\"activities\":[{\"title\":\"\",\"description\":\"\",\"steps\":[\"\",\"\",\"\"],\"expected_result\":\"\"}],\"basis_note\":\"\"}."
+        )
+        client = OpenAI(api_key=key, timeout=45)
+        result = client.chat.completions.create(
+            model=model,
+            messages=[{"role":"system","content":"한국 고등학생의 진로 탐구를 돕는 교육 설계자. 입력 자료에 없는 활동 성과를 절대 지어내지 말 것."},
+                      {"role":"user","content":prompt}],
+            response_format={"type":"json_object"}, max_completion_tokens=1800,
+        )
+        raw = result.choices[0].message.content
+        data = json.loads(raw)
+        acts = data.get("activities", [])
+        if not isinstance(acts,list) or len(acts)!=3: return None
+        validated = []
+        for row in acts:
+            if not isinstance(row,dict): return None
+            title=str(row.get('title') or '').strip()
+            desc=str(row.get('description') or '').strip()
+            steps=row.get('steps',[])
+            expected=str(row.get('expected_result') or '').strip()
+            if not title or not desc or not expected or not isinstance(steps,list) or len(steps)<2: return None
+            validated.append({'title':title[:120], 'description':desc[:600],
+                         'steps':[str(x)[:180] for x in steps[:5]],'expected_result':expected[:200]})
+        return validated,str(data.get('basis_note') or '').strip()[:300]
+    except Exception:
+        # Backend never exposes API keys or raw student-record text via exceptions.
+        return None
+
+
+def make_roadmap(major, grade, records, text):
+    """Concrete, forward-looking exploration suggestions; no fictional prior achievements."""
     major = str(major or "").strip()
-    if not major:
-        raise ValueError("희망 학과를 선택해 주세요.")
-    grade = max(1, min(2, int(grade or 1)))
-    chunks = _record_chunks(records, text)
-    keys = MAJORS.get(major, set())
-    related = [x for x in chunks if any(k in x['text'].casefold() for k in keys)]
-    # 가장 최근 자료보다 탐구 과정(실험·비교·측정 등)이 기술된 실제 기록을 우선합니다.
-    actions = ("탐구", "측정", "분석", "비교", "실험", "조사", "설계", "토론", "제작", "검증")
-    basis_entry = next((x for x in related if any(k in x['text'] for k in actions)), None)
-    if basis_entry is None:
-        basis_entry = next((x for x in chunks if any(k in x['text'] for k in actions)), None)
-    basis_source = basis_entry['source'] if basis_entry else None
-    # 분야별 내용은 학과명으로 분류하되 모든 활동은 '앞으로 할 제안'으로 명시합니다.
-    fields = [
-        (("인공지능", "컴퓨터", "소프트웨어", "데이터", "정보보안", "통계"),
-         ["대수", "확률과 통계", "정보"], "자료의 패턴과 예측", "데이터 표본 구성 및 시각화", "간단한 예측·분류 방법 비교", "오차와 편향 검토"),
-        (("환경", "지구", "천문", "해양", "산림", "농생명", "스마트팜"),
-         ["지구과학", "생명과학", "확률과 통계"], "환경과 관측 자료의 변화", "관측·공개자료 수집", "기간·조건별 추세 비교", "예외 사례와 변수 검증"),
-        (("수학", "통계", "물리"),
-         ["대수", "미적분", "확률과 통계"], "수학적 모델과 실제 자료의 관계", "문제 조건과 데이터 정리", "대안 모델·풀이 방법 비교", "가정과 오차 검토"),
-        (("기계", "로봇", "반도체", "전기", "전자", "자동차", "항공", "건축", "토목", "에너지", "공학"),
-         ["대수", "미적분", "물리학"], "구조·물리량의 변화", "측정 기준과 작동 원리 조사", "모형·계산 결과 비교", "조건 변화에 따른 설계 개선"),
-        (("화학", "생명", "의학", "의예", "약학", "치의", "수의", "간호", "보건", "식품"),
-         ["화학", "생명과학", "확률과 통계"], "생명·물질과 실험 변수", "안전한 문헌 및 공개자료 조사", "변수에 따른 결과 비교", "오차와 윤리적 한계 검토"),
-        (("경제", "경영", "무역", "통상", "회계", "금융", "정치", "행정", "법학", "사회", "복지"),
-         ["경제", "사회와 문화", "확률과 통계"], "사회 현상의 원인과 영향", "공개 통계·사례 비교", "이해관계자 관점의 차이 분석", "해결책의 비용·형평성 검토"),
-        (("국어", "문학", "언어", "역사", "철학", "교육", "미디어", "홍보"),
-         ["독서와 작문", "사회와 문화", "세계사"], "텍스트와 사회적 맥락", "자료·관점별 텍스트 비교", "근거에 따른 해석 구성", "반론과 해석 한계 검토"),
-        (("디자인", "영상", "애니", "음악", "미술", "체육", "스포츠", "무용"),
-         ["예술 관련 선택과목", "진로 관련 실습", "융합 선택과목"], "표현 방법과 수용자 경험", "작품 및 사례 비교", "콘셉트 시안·동작 구성", "피드백을 반영한 개선"),
-        (("지구", "천문", "해양", "산림", "농생명", "스마트팜", "환경"),
-         ["지구과학", "생명과학", "확률과 통계"], "환경과 관측 자료의 변화", "관측·공개자료 수집", "기간·조건별 추세 비교", "예외 사례와 변수 검증"),
-    ]
-    subjects = ["관련 기초 교과", "탐구 과목", "융합 선택과목"]
-    topic, step1, step2, step3 = ("전공 관련 문제", "자료 수집", "비교 분석", "결과 검증")
-    for keys2, s, t, p1, p2, p3 in fields:
-        if any(k in major for k in keys2):
-            subjects, topic, step1, step2, step3 = s, t, p1, p2, p3
-            break
-    context = f"{basis_source}의 실제 기록" if basis_source else "기존 기록에서 수행 근거가 명확하지 않은 상태"
-    acts = [
-        {"title":f"{major} 연계 질문 설계", "description":f"{context}을 출발점으로 {topic}에 관한 구체적인 질문을 만듭니다. {step1}에 앞서 평가 기준을 정해 보세요.",
-         "steps":["기존 기록의 주제와 아직 확인되지 않은 점 구분", "탐구 질문·비교 기준 작성", "출처와 자료 수집 계획 수립"],"expected_result":"탐구 질문지·자료 목록"},
-        {"title":f"{topic} 탐구 실행", "description":f"{major} 관련 방법을 적용하여 {step2}을 수행하고 결과를 표·그래프·논증으로 기록하도록 제안합니다.",
-         "steps":["공개자료 또는 안전한 측정 자료 확보", step2, "과정·한계·중간 결과 기록"],"expected_result":"탐구 보고서 초안·결과 표"},
-        {"title":f"{major} 탐구 검증과 심화", "description":f"앞 단계 결과에 대해 {step3}을 진행하고, 다른 조건에서도 같은 결론이 성립하는지 점검합니다.",
-         "steps":["오류·반례·자료의 편향 확인", step3, "피드백을 반영한 후속 질문 도출"],"expected_result":"보완 보고서·후속 탐구 계획"},
-    ]
-    return {
-        "rubric_version":VERSION,"analysis_mode":"rule_based_planning","major":major,
-        "evidence_status":"related" if related else "not_confirmed",
-        "recommended_subjects":[{"subject":s,"reason":f"{major} 탐색과 관련된 과목 예시입니다. 학교 개설 여부를 확인하세요."} for s in subjects],
-        "research_activities":acts,
-        "grade_plan":[{"grade":g,"goal":("현재 기록에서 확인된 탐구 주제 정리" if g==grade else "질문·근거를 확장한 심화 탐구"),
-                       "actions":["탐구 질문 수립", "활동·결과 기록", "검증·후속 활동 설계"]} for g in range(grade,4)],
-        "advice":f"연계 출발점: {context}. 학생부 근거 미확인은 능력 부족을 뜻하지 않습니다. 위 탐구는 수행 사실이 아닌 앞으로의 제안입니다."
-    }
+    if not major: raise ValueError("희망 학과를 선택해 주세요.")
+    grade = max(1,min(2,int(grade or 1)))
+    chunks = _record_chunks(records,text)
+    terms = MAJORS.get(major,set())
+    related = [x for x in chunks if any(str(k).casefold() in x['text'].casefold() for k in terms)]
+    # A broad generic word such as '학습' is not enough to claim major-specific evidence.
+    source = related[0]['source'] if related else None
+    status = "related_record_found" if related else "evidence_not_confirmed"
+    subjects, activities = _roadmap_domain(major)
+    project_rows = [{"title":title, "description":description, "steps":steps,"expected_result":output}
+                    for title,description,steps,output in activities]
+    ai_result = _ai_propose_roadmap(major, grade, chunks, project_rows)
+    if ai_result:
+        project_rows, basis_note = ai_result
+        proposal_mode = "ai_record_grounded_proposals"
+    else:
+        basis_note = ""
+        proposal_mode = "subject_domain_proposals"
+    intro = (f"학생부의 '{source}' 기록에서 관련 주제가 탐색되었습니다. 실제 연계 타당성은 원문을 확인하세요."
+             if source else f"입력 기록에서 {major}의 직접적인 활동 근거를 찾지 못했습니다. 아래는 앞으로 시도할 수 있는 입문 탐구 제안입니다.")
+    return {"rubric_version":VERSION,"analysis_mode":proposal_mode,"major":major,
+      "evidence_status":status,
+      "recommended_subjects":[{"subject":s,"reason":f"{major} 진로 탐색과 관련된 과목입니다. 학교 개설 과목을 확인하세요."} for s in subjects],
+      "research_activities":project_rows,
+      "grade_plan":[{"grade":g,"goal":"진로 관련 교과 탐구와 수행 근거 확보" if g==grade else "변수·자료를 확장한 후속 검증", "actions":["탐구 질문·변수 설정","자료 수집과 수행 과정 기록","결과 비교 및 수정"]} for g in range(grade,4)],
+      "advice":intro+ (" AI 연결 근거: " + basis_note if basis_note else "") + " 탐구활동은 이미 수행했다고 단정하는 기록이 아니라, 향후 실행을 위한 제안입니다."}
