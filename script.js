@@ -215,6 +215,22 @@ function radarChart(items) {
   return wrap;
 }
 
+// Keep the full original evidence in the response; shorten only what is shown.
+function conciseText(value, maxLength = 105) {
+  const clean = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (clean.length <= maxLength) return clean;
+  const head = clean.slice(0, maxLength);
+  const boundary = Math.max(head.lastIndexOf(" "), head.lastIndexOf("."), head.lastIndexOf("다."));
+  return `${(boundary >= Math.floor(maxLength * 0.6) ? head.slice(0, boundary) : head).trim()}…`;
+}
+
+function compactEvidence(value, maxLength = 110) {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  const first = text.split(/\s*\/\s*|\n+/).find(Boolean) || text;
+  return conciseText(first, maxLength);
+}
+
 function renderDashboard(data) {
   analysisResults.replaceChildren();
 
@@ -278,64 +294,53 @@ function renderDashboard(data) {
     analysisResults.append(audit);
   }
 
-  const competencies = card("5대 핵심 역량", "span-full");
-  const competencyLayout = el("div", "competency-layout");
-  if (data.competencies.every(item => item.score !== null)) {
-    competencyLayout.append(radarChart(data.competencies));
+  // Compact overview: 5 ratings and one key observation per competency.
+  const competencies = card("5대 핵심 역량", "span-full seedu-compact-section");
+  const competencyLayout = el("div", "competency-layout seedu-competency-layout");
+  const validScores = data.competencies.every(item => item.score !== null && Number.isFinite(item.score));
+  if (validScores) {
+    const radar = radarChart(data.competencies);
+    radar.classList.add("seedu-compact-radar");
+    competencyLayout.append(radar);
   } else {
-    competencyLayout.append(el("p", "muted", "근거 부족(N/E) 항목이 있어 레이더 차트를 표시하지 않습니다. 누락을 0점으로 간주하지 않습니다."));
+    competencyLayout.append(el("p", "muted", "일부 역량은 근거 미확인으로 점수를 표시하지 않습니다. 0점은 아닙니다."));
   }
 
-  const scores = el("div", "score-grid");
-
+  const scores = el("div", "score-grid seedu-compact-scores");
   data.competencies.forEach((item) => {
-    const box = el("div", "score-item");
+    const box = el("div", "score-item seedu-compact-score");
     const heading = el("div", "score-heading");
-
     heading.append(el("strong", "", item.name));
-    heading.append(
-      el("span", "score-number", item.score === null ? "평가 보류" : `${Math.round(item.score)} / 100`)
-    );
-
+    heading.append(el("span", "score-number", item.score === null ? "근거 미확인" : `${Math.round(item.score)}점`));
     box.append(heading);
-
-    const track = el("div", "bar-track");
-    const fill = el("div", "bar-fill");
-
-    fill.style.width =
-      `${Math.max(0, Math.min(100, item.score ?? 0))}%`;
-
-    track.append(fill);
-
-    if (item.score !== null) box.append(track);
-    if (item.evidence) {
-      const shortEvidence = item.evidence.length > 175 ? `${item.evidence.slice(0, 175)}…` : item.evidence;
-      box.append(el("p", "evidence", shortEvidence));
+    if (item.score !== null && Number.isFinite(item.score)) {
+      const track = el("div", "bar-track");
+      const fill = el("div", "bar-fill");
+      fill.style.width = `${Math.max(0, Math.min(100, item.score))}%`;
+      track.append(fill);
+      box.append(track);
     }
-
+    if (item.evidence) box.append(el("p", "evidence seedu-brief-evidence", compactEvidence(item.evidence, 88)));
     scores.append(box);
   });
-
   competencyLayout.append(scores);
   competencies.append(competencyLayout);
   analysisResults.append(competencies);
 
-  // 강점 / 보완점: 카드 두 장으로 나란히 표시
+  // Show only two key observations. No forced one-line clipping or horizontal overflow.
+  const feedbackWrap = el("div", "seedu-feedback-grid span-full");
   [
-    ["강점", data.strengths, "strength-card"],
-    ["보완점", data.improvements, "improve-card"]
-  ].forEach(([title, values, className]) => {
-    const box = card(title, `feedback-card ${className}`);
-    const list = el("ul", "");
-
-    values.slice(0, 2).forEach((value) => {
-      const brief = String(value);
-      list.append(el("li", "", brief.length > 195 ? brief.slice(0, 195) + '…' : brief));
-    });
-
+    ["나의 강점", data.strengths, "strength-card", "확인된 강점이 없습니다."],
+    ["보완할 점", data.improvements, "improve-card", "추가 탐색이 필요한 부분을 확인해 보세요."]
+  ].forEach(([heading, values, className, emptyText]) => {
+    const box = card(heading, `feedback-card ${className} seedu-brief-feedback`);
+    const list = el("ul", "seedu-feedback-list");
+    const items = values.filter(x => String(x || "").trim()).slice(0, 2);
+    (items.length ? items : [emptyText]).forEach(value => list.append(el("li", "", conciseText(value, 100))));
     box.append(list);
-    analysisResults.append(box);
+    feedbackWrap.append(box);
   });
+  analysisResults.append(feedbackWrap);
 
   const majors = card("근거 중심 전공 탐색", "span-full");
   const majorList = el("div", "major-list");
@@ -351,74 +356,44 @@ function renderDashboard(data) {
   if (!data.majors.length) {
     majorList.append(el("p", "evidence", "이번 기록에서 전공별 평가 지표와 연결되는 근거가 충분히 확인되지 않았습니다. 억지로 학과 3개를 추천하지 않습니다. 진로활동이나 교과 탐구의 전공 관련 근거를 검토해 보세요."));
   }
-  data.majors.forEach((item, i) => {
-    const box = el(
-      "div",
-      i === 0 && item.scoreStatus === "complete" ? "major-item is-top" : "major-item"
-    );
-    const hasScore = item.fit !== null;
+  data.majors.forEach((item) => {
+    const box = el("div", "major-item seedu-major-compact");
+    const coverage = Math.max(0, Math.min(100, Number(item.coverageWeight) || 0));
+    const complete = item.scoreStatus === "complete" && item.fit !== null && coverage === 100;
+    box.append(el("p", "major-rank", complete ? "종합 평가 완료" : "전공 탐색 후보 · 종합 평가 보류"));
+    box.append(el("h3", "major-name", item.name));
+    box.append(el("p", "evidence seedu-major-reason", compactEvidence(item.reason, 125) || "전공 관련 활동의 근거를 추가 확인해야 합니다."));
 
-    // 순위는 숫자 대신 '적합도 높음/보통/낮음' 단계로 보여 준다
-    box.append(
-      el(
-        "p",
-        "major-rank",
-        item.scoreStatus === "insufficient_evidence"
-          ? `전공 탐색 후보 · 종합 적합도 평가 보류`
-          : hasScore
-            ? `${i + 1}위 · ${fitLevel(item.fit)}`
-            : `${i + 1}위 · 평가 근거 부족`
-      ),
-      el("h3", "major-name", item.name),
-      el("p", "evidence", item.reason.length > 270 ? item.reason.slice(0, 270) + '…' : item.reason)
-    );
-
-    if (hasScore || item.partialScore !== null) {
-      // 근거 부족 항목은 종합 적합도로 단정하지 않는다.
-      const details = el("details", "major-fit-details");
-
-      details.append(
-        el("summary", "", "세부 평가 보기"),
-        el("p", "evidence", hasScore
-          ? `종합 평가 ${item.fit.toFixed(1)} / 100`
-          : `확인된 지표의 점수 합 ${item.partialScore.toFixed(1)}점 (전체 배점 100점 중 ${item.coverageWeight}점 분량만 평가 가능; 종합 적합도 평가 보류)`)
-      );
-
-      Object.entries(categoryMax).forEach(([category, maximum]) => {
-        const coverage = Number(item.categoryCoverage?.[category] ?? 0);
-        const value = Number(item.categoryScores?.[category]);
-        const row = el("div", "score-item");
-        const heading = el("div", "score-heading");
-        heading.append(
-          el("strong", "", category),
-          el("span", "score-number",
-            coverage <= 0 || !Number.isFinite(value)
-              ? "N/E · 평가 보류"
-              : `${value.toFixed(1)} / ${maximum} · 평가 가능 배점 ${coverage}/${maximum}`)
-        );
-        row.append(heading);
-        if (coverage > 0 && Number.isFinite(value)) {
-          const track = el("div", "bar-track");
-          const fill = el("div", "bar-fill");
-          fill.style.width = `${Math.max(0, Math.min(100, value / maximum * 100))}%`;
-          track.append(fill);
-          row.append(track);
-        }
-        details.append(row);
-      });
-
-      // Detailed indicator scores remain available above; avoid reprinting the
-      // same long evidence paragraph here.
-
-      if (item.improvement) {
-        details.append(
-          el("p", "evidence", `보완 방향: ${item.improvement}`)
-        );
-      }
-
-      box.append(details);
+    const details = el("details", "major-fit-details seedu-major-details");
+    details.append(el("summary", "", "세부 평가 확인"));
+    if (complete) {
+      details.append(el("p", "seedu-evaluation-note", `종합 루브릭 점수 ${item.fit.toFixed(1)} / 100 · 합격 확률이 아닙니다.`));
+    } else {
+      const part = Number.isFinite(item.partialScore) ? item.partialScore.toFixed(1) : "—";
+      details.append(el("p", "seedu-evaluation-note", `종합 평가 보류 · 평가 가능한 배점 ${coverage}/100 · 확인된 부분 점수 ${part}/${coverage || '—'}`));
+      details.append(el("p", "muted", "부분 점수는 전공 적합도나 학과 순위가 아닙니다. N/E는 0점이 아닙니다."));
     }
-
+    Object.entries(categoryMax).forEach(([category, maximum]) => {
+      const covered = Math.max(0, Number(item.categoryCoverage?.[category]) || 0);
+      const rawScore = item.categoryScores?.[category];
+      const value = rawScore == null || rawScore === "" ? NaN : Number(rawScore);
+      const rated = covered > 0 && Number.isFinite(value);
+      const row = el("div", "score-item seedu-indicator-row");
+      const heading = el("div", "score-heading");
+      heading.append(el("strong", "", category));
+      heading.append(el("span", "score-number", rated ? `${value.toFixed(1)}점 · 근거 ${covered}/${maximum}` : "N/E · 근거 미확인"));
+      row.append(heading);
+      if (rated) {
+        const track = el("div", "bar-track");
+        const fill = el("div", "bar-fill");
+        fill.style.width = `${Math.max(0, Math.min(100, value / maximum * 100))}%`;
+        track.append(fill);
+        row.append(track);
+      }
+      details.append(row);
+    });
+    if (item.improvement) details.append(el("p", "evidence seedu-brief-evidence", `보완 방향: ${conciseText(item.improvement, 115)}`));
+    box.append(details);
     majorList.append(box);
   });
 
@@ -428,7 +403,7 @@ function renderDashboard(data) {
     el(
       "p",
       "disclaimer",
-      "※ 전공은 탐색 후보이며 적합도 순위·합격 확률이 아닙니다. 전체 기록은 분석하되 대표 근거만 표시합니다. N/E는 0점이 아닙니다."
+      "※ 근거가 부족한 학과는 종합 평가를 보류합니다. 부분 점수는 적합도 순위나 합격 확률이 아니며, N/E는 0점이 아닙니다."
     )
   );
 
