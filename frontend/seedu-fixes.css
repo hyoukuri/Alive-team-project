@@ -165,3 +165,14 @@
 #plan-results .seedu-roadmap-major-feedback .seedu-feedback-list { list-style:disc; padding-left:20px; margin:0; overflow-wrap:anywhere; }
 #plan-results .seedu-roadmap-major-feedback .seedu-feedback-list li { margin-bottom:12px; line-height:1.7; overflow-wrap:anywhere; }
 @media(max-width:700px){#plan-results .seedu-roadmap-major-feedback .seedu-feedback-grid{grid-template-columns:1fr;}}
+
+/* Major-specific, evidence-grounded scoring explanation (Rubric 3.2) */
+#analysis-results .seedu-score-explanation{display:grid;gap:10px;margin-top:12px;min-width:0}
+#analysis-results .seedu-score-indicator{min-width:0;background:rgba(244,247,252,.8);border:1px solid #dbe4ef;border-radius:10px;padding:12px;font-size:.83rem;line-height:1.6}
+#analysis-results .seedu-score-indicator strong{display:block;margin-bottom:5px;overflow-wrap:anywhere}
+#analysis-results .seedu-score-indicator p{margin:5px 0;white-space:normal;overflow-wrap:anywhere;word-break:keep-all}
+#analysis-results .seedu-indicator-criterion{color:#56667b}
+#analysis-results .seedu-indicator-source{font-weight:600;color:#294b68}
+#analysis-results .seedu-indicator-quote{color:#293e54}
+#analysis-results .seedu-rubric-provenance{font-size:.78rem;color:#64748b;line-height:1.65;margin:16px 0 8px;overflow-wrap:anywhere}
+#analysis-results .seedu-major-details>summary{font-size:.92rem;padding:10px 0}

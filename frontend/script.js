@@ -545,8 +545,7 @@ function renderDashboard(data) {
     appendEvidencePreview(box, item.reason, "추천 근거 원문 보기");
 
     const details = el("details", "major-fit-details seedu-major-details");
-    details.open = true;
-    details.append(el("summary", "", "5개 평가 지표 · 근거 확인"));
+    details.append(el("summary", "", "점수 산정 이유 보기"));
     if (complete) {
       details.append(el("p", "seedu-evaluation-note", `종합 루브릭 점수 ${item.fit.toFixed(1)} / 100 · 합격 확률이 아닙니다.`));
     } else {
@@ -554,7 +553,32 @@ function renderDashboard(data) {
       details.append(el("p", "seedu-evaluation-note", `종합 평가 보류 · 평가 가능한 배점 ${coverage}/100 · 확인된 부분 점수 ${part}/${coverage || '—'}`));
       details.append(el("p", "muted", "부분 점수는 전공 적합도나 학과 순위가 아닙니다. N/E는 0점이 아닙니다."));
     }
-    const nextAction = {
+    // Rubric 3.2: self-designed 16-indicator anchors, informed by educational research.
+  const indicatorFocus = {
+    "전공 주제 관련성":"전공 지식·질문과 실제 활동의 연결",
+    "활동의 구체성":"학생이 수행한 역할·방법·산출물·수정",
+    "활동 간 연계성":"서로 다른 활동 사이의 실제 후속 연결",
+    "전공 기초 교과 역량":"전공 관련 교과 개념의 이해와 응용",
+    "지식의 실제 적용":"교과 지식을 실제 문제 또는 산출물에 적용",
+    "학습 태도와 개선":"오류·피드백을 반영한 학습 조정",
+    "관심 주제의 반복·유지":"기록된 기간에서 실제 관심이 이어진 정황",
+    "관심의 발전 과정":"초기 탐색에서 후속 활동으로의 발전",
+    "자기주도적 확장":"추가 탐색이나 실행의 자기주도성",
+    "탐구 문제 설정":"탐구 질문의 구체성·필요성·범위",
+    "탐구 방법 설계":"방법 선택의 이유와 설계·개선",
+    "결과 분석 및 검증":"자료와 결론의 연결 및 재확인",
+    "개선 및 후속 탐구":"한계를 진단하고 실제로 후속 개선을 실행",
+    "타 분야 지식 활용":"다른 분야의 개념을 실질적으로 연결",
+    "융합적 문제해결":"서로 다른 분야의 방법을 결합한 문제 해결",
+    "융합 결과의 타당성":"융합 산출물의 결과·한계·효과 검증"
+  };
+  const levelMeaning = {
+    1:"관심이나 기초적인 참여·탐색 수준",
+    2:"학생 자신의 구체적인 수행 행동이 확인된 수준",
+    3:"같은 활동에서 방법과 결과의 연결이 확인된 수준",
+    4:"검증·수정·개선 효과 등 심화 수행이 확인된 수준"
+  };
+  const nextAction = {
       "전공 관련 활동":"희망 학과 관련 질문을 정하고 교과 수업에서 실제 수행한 탐구 과정과 결과를 기록해 보세요.",
       "학업 역량":"해당 분야의 교과 개념을 적용한 풀이·분석·피드백 사례를 확인해 보세요.",
       "관심의 지속성":"학기별 후속 질문이나 기존 활동을 발전시킨 기록이 있는지 확인해 보세요.",
@@ -569,7 +593,7 @@ function renderDashboard(data) {
       const row = el("div", "score-item seedu-indicator-row");
       const heading = el("div", "score-heading");
       heading.append(el("strong", "", category));
-      heading.append(el("span", "score-number", rated ? `${value.toFixed(1)}점 · 근거 ${covered}/${maximum}` : "추가 근거 필요"));
+      heading.append(el("span", "score-number", rated ? `부분 점수 ${value.toFixed(1)}점 · 평가 가능한 배점 ${covered}/${maximum}점` : `평가 보류 · 전체 배점 ${maximum}점`));
       row.append(heading);
       if (rated) {
         const track = el("div", "bar-track");
@@ -578,9 +602,43 @@ function renderDashboard(data) {
         track.append(fill);
         row.append(track);
       }
+      const related = (item.indicatorDetails || []).filter(d => d && d.category === category);
+      const explanation = el("div", "seedu-score-explanation");
+      if (related.length) {
+        related.forEach(d => {
+          const indicator = el("div", "seedu-score-indicator");
+          const weight = Number(d.weight) || 0;
+          const rating = d.rating === null || d.rating === undefined ? NaN : Number(d.rating);
+          const isRated = Number.isInteger(rating) && rating >= 0 && rating <= 4;
+          const contribution = isRated ? (weight * rating / 4).toFixed(2).replace(/\.?0+$/, "") : null;
+          indicator.append(el("strong", "", `${d.indicator || "세부 지표"} · ${weight}점 배점`));
+          indicator.append(el("p", "seedu-indicator-criterion", `평가 기준: ${indicatorFocus[d.indicator] || "실제 수행 행동과 검증 가능한 기록"}`));
+          if (isRated) {
+            indicator.append(el("p", "", `${rating}/4등급 · 해당 지표 점수 ${contribution}점 (${weight} × ${rating}/4)`));
+            indicator.append(el("p", "seedu-indicator-criterion", `등급의 일반적 의미: ${levelMeaning[rating] || "평가 가능한 자료에서 확인된 수행 수준"}. 실제 판단은 아래 연결된 기록을 확인해야 합니다.`));
+            const quote = String(d.quote || "").trim();
+            if (quote && d.verified) {
+              const grade = d.grade ? `${d.grade}학년 · ` : "";
+              const source = String(d.source || "출처 미표시");
+              indicator.append(el("p", "seedu-indicator-source", `연결된 기록: ${grade}${source}`));
+              indicator.append(el("p", "seedu-indicator-quote", evidenceSummary(quote)));
+              appendEvidencePreview(indicator, quote, "근거 원문 보기");
+            } else {
+              indicator.append(el("p", "seedu-ne-guidance", "이 지표의 원문 근거가 전달되지 않았습니다. 점수의 타당성을 별도로 확인해야 합니다."));
+            }
+          } else {
+            indicator.append(el("p", "seedu-ne-guidance", "평가 보류(N/E): 연결된 수행 근거가 부족합니다. 0점으로 계산하지 않습니다."));
+          }
+          explanation.append(indicator);
+        });
+      } else {
+        explanation.append(el("p", "seedu-ne-guidance", "세부 지표별 점수·근거 자료가 분석 응답에 포함되지 않았습니다. 임의의 이유를 만들지 않습니다."));
+      }
+      row.append(explanation);
       if (!rated) row.append(el("p", "seedu-ne-guidance", `다음 탐색: ${nextAction[category]}`));
       details.append(row);
     });
+    details.append(el("p", "seedu-rubric-provenance", "평가 체계: 교육·AI 관련 연구를 참고한 SEEDU:ON 자체 루브릭 3.2. 0~4등급, 16개 지표 및 30·25·20·15·10점 배점은 프로젝트 자체 설계 기준이며, 학술 논문에서 검증된 점수표를 그대로 사용한 것이 아닙니다."));
     if (item.improvement) {
       details.append(el("p", "evidence seedu-brief-evidence", `보완 방향: ${evidenceSummary(item.improvement)}`));
       appendEvidencePreview(details, item.improvement, "보완 안내 원문 보기");
@@ -773,6 +831,7 @@ function normalizeMajors(raw) {
       partialScore: evaluation?.partial_score != null ? Number(evaluation.partial_score) : null,
       coverageWeight: Number(evaluation?.coverage_weight ?? 0),
       categoryScores: evaluation?.category_scores ?? {},
+      indicatorDetails: asArray(evaluation?.indicator_details),
       categoryCoverage: evaluation?.category_coverage_weight ?? (Array.isArray(evaluation?.indicator_details) ? evaluation.indicator_details.reduce((acc,d) => { if (Number.isInteger(d.rating)) acc[d.category] = (acc[d.category] || 0) + Number(d.weight || 0); return acc; }, {}) : {}),
       evidence: asText(evaluation?.evidence, ""),
       improvement: asText(evaluation?.improvement, ""),
