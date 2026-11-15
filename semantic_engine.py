@@ -12,7 +12,7 @@ from collections import defaultdict
 from rubric_v2 import INDICATORS, MAJOR_FIT_RUBRIC, COMPETENCY_NAMES
 from rubric_engine import MAJORS, LEARNING_VALUE, _record_chunks
 
-VERSION = "rubric-3.2-behavior-anchors"
+VERSION = "rubric-3.2-major-evidence-ui-20261115"
 TAGS = {"learning", "career", "question", "method", "result", "validation", "revision", "collaboration", "leadership", "reflection", "planning", "interdisciplinary", "comparison", "application", "continuity", "concept"}
 # action-level semantics from AI, not keyword matches
 HIGH_ACTIONS = {"validation", "revision"}
@@ -50,25 +50,40 @@ def prepare(records, text, grade):
     return sources
 
 
+# These are broad terms that cannot, by themselves, establish interest in a major.
+_GENERIC_TERMS = {
+    '학습','수업','발표','학교','선생님','교사','친구','학생','학급','지도','조별',
+    '협력','협동','활동','참여','독서','읽기','글쓰기','토론','자료','분석','탐구',
+    '과제','연구','문제','실험','수학','과학','기술','교육','교과','사회','문화',
+    '정보','진로','성장','수행','프로젝트','계획','기초','심화','발견',
+}
+
+def _major_terms(major):
+    return [str(x).strip().casefold() for x in MAJORS.get(major, [])
+            if len(str(x).strip()) >= 2 and str(x).strip() not in _GENERIC_TERMS]
+
+
 def candidates_from_sources(sources):
-    # Preselection only; never used for the final score.
-    full = " ".join(x["text"].lower() for x in sources)
+    """Conservative shortlist from distinctive subject-matter signals only.
+
+    No arbitrary fallback majors are inserted to make up three names. This is
+    candidate discovery, not an aptitude assessment.
+    """
     scored = []
-    for major, terms in MAJORS.items():
-        hits = sum(1 for term in terms if term.lower() in full)
-        if hits:
-            scored.append((major, hits))
-    scored.sort(key=lambda x: (-x[1], x[0]))
-    options = [name for name, _ in scored[:5]]
-    # Students can have a new field; AI may not invent unlisted majors in this version.
-    if not options:
-        options = ["컴퓨터공학과", "데이터사이언스학과", "사회학과"]
-    for name in MAJORS:
-        if len(options) >= 3:
-            break
-        if name not in options:
-            options.append(name)
-    return options[:5]
+    for major in MAJORS:
+        terms = _major_terms(major)
+        matching_activities = 0
+        distinct_terms = set()
+        for source in sources:
+            body = str(source.get('text') or '').casefold()
+            found = {term for term in terms if term in body}
+            if found:
+                matching_activities += 1
+                distinct_terms.update(found)
+        if matching_activities:
+            scored.append((major, matching_activities, len(distinct_terms)))
+    scored.sort(key=lambda x: (-x[1], -x[2], x[0]))
+    return [major for major, _, _ in scored[:8]]
 
 
 def _norm(s):
@@ -257,18 +272,36 @@ def _indicator_score(indicator, linked):
     return best
 
 def majors_from_ai(raw_links, facts, candidates):
-    """Only show a major with VERIFIED, scored major-linked evidence.
+    """Evidence-linked exploration candidates, NOT a major suitability ranking.
 
-    This is exploration, not a ranking: incomplete indicators cannot establish
-    a 100-point total, and an unlinked major must not fill a TOP-3 slot.
+    A major must have independent, specific, subject-matter evidence, not just
+    generic behavior or keyword frequency. A single strong activity is enough
+    for exploration, never a claim of overall suitability.
     """
-    links = {x.get("major"): x for x in raw_links
-             if isinstance(x, dict) and x.get("major") in candidates} if isinstance(raw_links, list) else {}
+    links = {x.get('major'): x for x in raw_links
+             if isinstance(x, dict) and x.get('major') in candidates} if isinstance(raw_links, list) else {}
     scored = []
     for major in candidates:
-        item = links.get(major, {})
-        ids = _valid_ids(item.get("evidence_ids"), facts)
-        linked = [facts[i] for i in ids]
+        terms = _major_terms(major)
+        if not terms:
+            continue
+        ids = _valid_ids(links.get(major, {}).get('evidence_ids'), facts)
+        linked = []
+        seen = set()
+        for idx in ids:
+            fact = facts[idx]
+            # An AI link alone is insufficient: corroborate with a distinctive
+            # technical/humanities topic directly present in the verified quote
+            # (or its original source text if a fact is a short excerpt).
+            context = (str(fact['source']) + ' ' + str(fact['quote'])).casefold()
+            if not any(term in context for term in terms):
+                continue
+            if not set(fact['tags']) & {'career','question','method','result','application','concept','comparison','validation','interdisciplinary'}:
+                continue
+            key = (fact['grade'], fact['source'], fact['quote'])
+            if key not in seen:
+                linked.append(fact)
+                seen.add(key)
         if not linked:
             continue
         categories = {cat: 0.0 for cat in MAJOR_FIT_RUBRIC}
@@ -282,66 +315,49 @@ def majors_from_ai(raw_links, facts, candidates):
                 coverage += weight
                 category_coverage[cat] += weight
                 categories[cat] += weight * rating / 4
-            # Choose a source that actually carries the indicator's action tags.
-            # Do not print the first unrelated quote for every indicator.
             required = REQUIREMENTS[indicator][0]
-            matched = next((f for f in linked if set(f["tags"]) & required), None) if rating is not None else None
-            details.append({"category": cat, "indicator": indicator, "weight": weight,
-                            "rating": rating,
-                            "status": "rated" if rating is not None else "insufficient_evidence",
-                            "quote": matched["quote"] if matched else "",
-                            "grade": matched["grade"] if matched else None,
-                            "source": matched["source"] if matched else "",
-                            "verified": rating is not None})
-        # Meaningful link alone is not enough: at least one indicator must be
-        # evaluable. Otherwise it is NOT an evidence-backed major candidate.
+            matched = next((f for f in linked if set(f['tags']) & required), None) if rating is not None else None
+            details.append({'category': cat, 'indicator': indicator, 'weight': weight,
+                            'rating': rating,
+                            'status': 'rated' if rating is not None else 'insufficient_evidence',
+                            'quote': matched['quote'] if matched else '',
+                            'grade': matched['grade'] if matched else None,
+                            'source': matched['source'] if matched else '',
+                            'verified': rating is not None})
         if coverage <= 0:
             continue
-        partial = round(sum(categories.values()), 2)
-        reason = ""  # Use only verified student-record quotes, not unverified AI paraphrases.
-        # Never silently truncate the evidence at the first 3-4 activities.
-        # Preserve all distinct linked sources and rotate the visible samples
-        # across grades while reporting the complete linked activity names.
-        distinct = {}
+        unique = {}
         for fact in linked:
-            distinct.setdefault((fact["grade"], fact["source"]), fact)
-        by_grade = defaultdict(list)
-        for key, fact in distinct.items():
-            by_grade[key[0]].append(fact)
-        ordered = []
-        while any(by_grade.values()):
-            for g in sorted(by_grade):
-                if by_grade[g]:
-                    ordered.append(by_grade[g].pop(0))
-        linked_names = [f'{f["grade"]}학년 {f["source"]}' for f in ordered]
-        # Include the name of *every* connected activity. Full quotes are in
-        # structured evidence_sources; limit prose samples for readability.
-        samples = [f'{f["grade"]}학년 {f["source"]}: {f["quote"][:100]}' for f in ordered[:8]]
-        reason = (f"전공 관련 근거 확인 활동 ({len(ordered)}개): "
-                  + ', '.join(linked_names)
-                  + (". 대표 근거: " + ' / '.join(samples) if samples else ''))
-        evidence_sources = [{"grade": f["grade"], "source": f["source"],
-                             "quote": f["quote"]} for f in ordered]
+            unique.setdefault((fact['grade'], fact['source']), fact)
+        # Prefer sustained interest across distinct activities. Keep all
+        # evidence internally, showing only the most informative examples.
+        ordered = sorted(unique.values(), key=lambda f:
+            (-len(set(f['tags']) & {'question','method','result','validation','revision','application','concept'}),
+             -len(f['quote']), f['grade'], f['source']))
+        evidence_sources = [{'grade': f['grade'], 'source': f['source'],
+                             'quote': f['quote']} for f in ordered]
+        samples = [f"{f['grade']}학년 {f['source']}: {f['quote'][:105]}" for f in ordered[:2]]
+        reason = ' / '.join(samples)
         fit = {
-            "major": major, "ratings": nested,
-            "category_scores": {k: round(v, 2) for k, v in categories.items()},
-            "category_coverage_weight": category_coverage,
-            "total_score": partial if coverage == 100 else None,
-            "partial_score": partial, "coverage_weight": coverage,
-            "score_status": "complete" if coverage == 100 else "insufficient_evidence",
-            "indicator_details": details, "evidence": reason,
-            "evidence_sources": evidence_sources,
-            "improvement": "N/E 지표는 평가되지 않았으며 0점으로 계산하지 않습니다. 확인된 항목의 부분 점수만 제공합니다."
+            'major': major, 'ratings': nested,
+            'category_scores': {k: round(v, 2) for k, v in categories.items()},
+            'category_coverage_weight': category_coverage,
+            # Do not produce a completed aptitude claim from this candidate heuristic.
+            'total_score': None, 'partial_score': round(sum(categories.values()), 2),
+            'coverage_weight': coverage, 'score_status': 'insufficient_evidence',
+            'indicator_details': details, 'evidence': reason,
+            'evidence_sources': evidence_sources,
+            'improvement': '전공 적합도 확정 점수는 제공하지 않습니다. 확인된 활동에 대한 부분 평가입니다.'
         }
         recommendation = {
-            "major": major, "reason": reason, "evidence_sources": evidence_sources,
-            "learning_value": LEARNING_VALUE.get(major, "해당 전공의 교과 구조와 학습 내용을 탐색해 보세요."),
-            "exploration": "활동의 이유·수행 과정·검증 결과를 기록해 보세요.",
-            "status": "exploration_candidate" if coverage < 100 else "evaluated"
+            'major': major, 'reason': reason, 'evidence_sources': evidence_sources,
+            'learning_value': LEARNING_VALUE.get(major, '해당 전공의 교과 구조를 탐색해 보세요.'),
+            'exploration': '관련 활동의 과정과 후속 탐구를 확인해 보세요.',
+            'status': 'exploration_candidate'
         }
-        scored.append((coverage, len(ids), partial, major, recommendation, fit))
-    # Rank by availability of evaluable evidence, NEVER by an incomplete
-    # partial score alone. No fabricated fallback names to reach 3 slots.
+        strong_actions = sum(bool(set(f['tags']) & {'method','result','validation','application'}) for f in ordered)
+        scored.append((len(ordered), strong_actions, coverage, major, recommendation, fit))
+    # Distinct, directly relevant activities before incomplete partial points.
     scored.sort(key=lambda x: (-x[0], -x[1], -x[2], x[3]))
     picked = scored[:3]
     return [x[4] for x in picked], [x[5] for x in picked]
