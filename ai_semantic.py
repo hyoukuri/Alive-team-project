@@ -42,67 +42,83 @@ SYSTEM = (
     'm은 전공 후보 3개의 관련 근거 번호 배열이다. '
     '태그는 learning,career,question,method,result,validation,revision,collaboration,leadership,'
     'reflection,planning,interdisciplinary,comparison,application,continuity,concept 중에서만 선택. '
-    'e는 학업·진로·탐구만 반복하지 말고 공동체·성장 관련 수행도 검토하라. 설명 없이 JSON만 출력.'
+    'e는 학업·진로·탐구만 반복하지 말고 공동체·성장 관련 수행도 검토하라. '
+    '서로 다른 학년의 수행 근거가 실제로 존재한다면 각 학년에서 적어도 하나씩 선택하라. '
+    '없는 행동이나 근거는 만들지 마라. 설명 없이 JSON만 출력.'
 )
 
 
 def _source_spans(sources: list[dict]) -> list[dict]:
-    """Select beginning AND later evidence from each record, with source diversity.
+    """Balance excerpts across grades, retaining exact source substrings.
 
-    This only selects text for AI review; no keyword triggers a competency score.
-    Each excerpt is an exact contiguous substring of its original source.
+    This is sampling, not full-record review. No score is inferred from selection.
     """
     if not sources:
         raise ValueError('학생부 기록 없음')
-    records=[]
-    for source_idx,item in enumerate(sources[:10]):
-        raw=str(item.get('text') or '').strip()
+
+    records = []
+    for idx, item in enumerate(sources):
+        raw = str(item.get('text') or '').strip()
         if not raw:
             continue
-        sentences=[part.strip() for part in re.split(r'(?<=[.!?。])\s+|\n+',raw) if part.strip()]
-        sentences=[part for part in sentences if len(part)>=12]
-        if not sentences and len(raw)>=12:
-            sentences=[raw]
-        if sentences:
-            records.append((source_idx,sentences))
+        parts = [p.strip() for p in re.split(r'(?<=[.!?。])\s+|\n+', raw) if len(p.strip()) >= 12]
+        if not parts and len(raw) >= 12:
+            parts = [raw]
+        if parts:
+            try:
+                grade = int(item.get('grade'))
+            except (ValueError, TypeError):
+                grade = 0
+            records.append((grade, idx, parts))
     if not records:
         raise ValueError('분석 가능한 학생부 구절이 없습니다')
 
-    # One opening and one concluding excerpt from each record, within 14 total.
-    # Later sentences frequently describe collaboration, feedback and improvement.
-    chosen=[]
-    for idx,parts in records:
-        chosen.append((idx,parts[0]))
-    for idx,parts in records:
-        if len(chosen)>=14:
-            break
-        if len(parts)>1:
-            chosen.append((idx,parts[-1]))
-    # Add a middle excerpt where space permits so multi-step actions aren't lost.
-    def category_priority(record):
-        idx, parts = record
-        category = str(sources[idx].get('source') or '').lower()
-        if any(x in category for x in ('행동', '종합')):
-            return 0
-        if any(x in category for x in ('자율', '자치', '동아리')):
-            return 1
-        return 2
-    for idx,parts in sorted(records,key=category_priority):
-        if len(chosen)>=14:
-            break
-        if len(parts)>2:
-            chosen.append((idx,parts[len(parts)//2]))
+    # Reserve at least one excerpt per present grade, even if later grades
+    # occur after many first-year subject records.
+    grades = sorted({g for g, _, _ in records})
+    by_grade = {g: [r for r in records if r[0] == g] for g in grades}
+    chosen = []
+    seen = set()
 
-    result=[]
-    seen=set()
-    for idx,part in chosen:
-        excerpt=part[:210].strip()
-        key=(idx,excerpt)
-        if len(excerpt)<12 or key in seen:
-            continue
+    def add(idx, part):
+        excerpt = part[:210].strip()
+        key = (idx, excerpt)
+        if len(excerpt) < 12 or key in seen or len(chosen) >= 14:
+            return
         seen.add(key)
-        result.append({'n':len(result),'i':idx,'t':excerpt})
-    return result
+        chosen.append((idx, excerpt))
+
+    # First pass: opening sentence from one record of every grade.
+    for g in grades:
+        _, idx, parts = by_grade[g][0]
+        add(idx, parts[0])
+
+    # Round robin across grades, taking opening excerpts from distinct sources.
+    max_records = max(len(v) for v in by_grade.values())
+    for k in range(max_records):
+        for g in grades:
+            if k < len(by_grade[g]):
+                _, idx, parts = by_grade[g][k]
+                add(idx, parts[0])
+
+    # Second pass: last sentences, again grade-balanced.
+    for k in range(max_records):
+        for g in grades:
+            if k < len(by_grade[g]):
+                _, idx, parts = by_grade[g][k]
+                if len(parts) > 1:
+                    add(idx, parts[-1])
+
+    # Third pass: middle sentences if there is remaining capacity.
+    for k in range(max_records):
+        for g in grades:
+            if k < len(by_grade[g]):
+                _, idx, parts = by_grade[g][k]
+                if len(parts) > 2:
+                    add(idx, parts[len(parts) // 2])
+
+    return [{'n': n, 'i': idx, 't': excerpt}
+            for n, (idx, excerpt) in enumerate(chosen)]
 
 
 def _payload(sources, candidates):
