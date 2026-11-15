@@ -92,7 +92,7 @@ def analyze_all_sources(sources: list[dict], records, text, grade, candidates,
     # remain owned by semantic_engine.py, unchanged.
     competencies = _competency_scores(merged_facts)
     links = [{'major': name, 'evidence_ids': list(dict.fromkeys(major_fact_ids[name]))}
-             for name in candidates[:3]]
+             for name in candidates]
     raw = {'facts': merged_facts, 'competencies': competencies, 'major_links': links}
     result = build_analysis(raw, records, text, grade, sources, candidates)
     facts_by_source = defaultdict(int)
