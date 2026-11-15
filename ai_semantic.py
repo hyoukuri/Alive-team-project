@@ -39,7 +39,7 @@ SYSTEM = (
     '정확히 JSON 객체 하나만 반환: '
     '{"e":[[0,["learning","method"]],[2,["collaboration"]],[3,["reflection","revision"]]],"m":[[0],[0],[]]}. '
     'e는 [n,영문태그배열]이며 n은 s에 실제 존재해야 한다. 각 구절을 모두 검토하되 수행 근거가 없는 구절은 제외하라. '
-    'm은 전공 후보 3개의 관련 근거 번호 배열이다. '
+    'm은 전공 후보 3개의 관련 근거 번호 배열이다. 전공과 직접 관련된 탐구·학습·적용 근거만 넣고, 인사·성실함·일반적인 생활 태도 등 무관한 구절을 전공 근거로 연결하지 마라. '
     '태그는 learning,career,question,method,result,validation,revision,collaboration,leadership,'
     'reflection,planning,interdisciplinary,comparison,application,continuity,concept 중에서만 선택. '
     'e는 학업·진로·탐구만 반복하지 말고 공동체·성장 관련 수행도 검토하라. 설명 없이 JSON만 출력.'
@@ -149,7 +149,7 @@ def _grouped_tags(facts):
     """
     groups = {}
     for fact in facts:
-        idx = fact.get('source_index')
+        idx = (fact.get('grade'), fact.get('source')) if 'source' in fact else fact.get('source_index')
         groups.setdefault(idx, []).append(fact)
     return [(items, set().union(*(set(f['tags']) for f in items)))
             for items in groups.values()]
@@ -246,7 +246,7 @@ def _normalize(parsed, candidates, spans, sources):
     selected=set()
     rows=_annotation_rows(parsed)
     invalid=0
-    for row in rows[:16]:
+    for row in rows:
         n,tags=_get_row(row)
         if n not in span_by_id or not tags:
             invalid+=1
@@ -264,7 +264,6 @@ def _normalize(parsed, candidates, spans, sources):
             continue
         selected.add(n)
         facts.append({'_n':n,'source_index':source_idx,'quote':quote,'tags':tags})
-    facts=facts[:10]
     ordered={f['_n']:i for i,f in enumerate(facts)}
     major_raw=parsed.get('m',parsed.get('majors',[]))
     majors=[]
