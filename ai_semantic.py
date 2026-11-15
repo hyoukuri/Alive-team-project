@@ -1,7 +1,7 @@
 """SEEDU:ON 3.1: compact evidence annotation with strict source verification.
 
-Only this file needs replacement. OpenRouter model is configured with
-OPENROUTER_MODEL; no implicit model change or repeated completion calls.
+Direct OpenAI official API. Set OPENAI_API_KEY and OPENAI_MODEL on Render.
+The semantic evidence extraction and source verification logic remain unchanged.
 AI selects pre-numbered real student-record excerpts and semantic tags.
 Python derives conservative ratings, using only validated excerpts.
 """
@@ -16,7 +16,6 @@ from typing import Any
 from rubric_v2 import COMPETENCY_NAMES
 
 LOG = logging.getLogger('seedu.semantic')
-BASE_URL = 'https://openrouter.ai/api/v1'
 TAGS = set('learning career question method result validation revision collaboration leadership reflection planning interdisciplinary comparison application continuity concept'.split())
 ALIASES = {
     '학습':'learning', '진로':'career', '문제':'question', '문제설정':'question',
@@ -291,22 +290,26 @@ def request_semantics(sources,candidates,*,call_fn=None):
     if call_fn is not None:
         result=_normalize(_json_object(call_fn(SYSTEM,payload)),candidates,spans,sources)
     else:
-        key=os.getenv('OPENROUTER_API_KEY','').strip()
-        model=os.getenv('OPENROUTER_MODEL','').strip()
+        # Official OpenAI API only; do not silently fall back to OpenRouter.
+        key = os.getenv('OPENAI_API_KEY', '').strip()
+        model = os.getenv('OPENAI_MODEL', 'gpt-6-luna').strip()
         if not key:
-            raise ValueError('Render OPENROUTER_API_KEY 미설정')
+            raise ValueError('Render OPENAI_API_KEY 미설정')
         if not model:
-            raise ValueError('Render OPENROUTER_MODEL 미설정')
+            raise ValueError('Render OPENAI_MODEL 미설정')
         from openai import OpenAI
-        params={'model':model,
-                'messages':[{'role':'system','content':SYSTEM},{'role':'user','content':payload}],
-                'max_tokens':2200,'temperature':0,
-                'response_format':{'type':'json_object'}}
-        # Keep the selected model-specific reasoning setting in one known place.
-        if model=='inclusionai/ling-3.2-flash:free':
-            params['extra_body']={'reasoning':{'enabled':False}}
-        with OpenAI(base_url=BASE_URL,api_key=key,timeout=40.0,max_retries=0) as client:
-            reply=client.chat.completions.create(**params)
+        params = {
+            'model': model,
+            'messages': [
+                {'role': 'system', 'content': SYSTEM},
+                {'role': 'user', 'content': payload},
+            ],
+            # No temperature: reasoning-capable GPT models may reject it.
+            'max_completion_tokens': int(os.getenv('SEEDU_MAX_OUTPUT_TOKENS', '5000')),
+            'response_format': {'type': 'json_object'},
+        }
+        with OpenAI(api_key=key, timeout=120.0, max_retries=0) as client:
+            reply = client.chat.completions.create(**params)
         selected,completion,reasoning=_usage(reply)
         choices=getattr(reply,'choices',[]) or []
         if not choices:
