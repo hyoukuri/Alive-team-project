@@ -1,8 +1,16 @@
 {
   "rewrites": [
-    {"source": "/", "destination": "/frontend/index.html"},
-    {"source": "/style.css", "destination": "/frontend/style.css"},
-    {"source": "/script.js", "destination": "/frontend/script.js"},
-    {"source": "/config.js", "destination": "/frontend/config.js"}
+    {
+      "source": "/api/:path*",
+      "destination": "https://seedu-on-api.onrender.com/api/:path*"
+    },
+    {
+      "source": "/",
+      "destination": "/frontend/index.html"
+    },
+    {
+      "source": "/:path*",
+      "destination": "/frontend/:path*"
+    }
   ]
 }
