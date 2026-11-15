@@ -49,6 +49,7 @@ def analyze_all_sources(sources: list[dict], records, text, grade, candidates,
         raise ValueError('전체 세특 분석에 필요한 구간 수가 서버 설정 한도를 초과했습니다.')
 
     merged_facts = []
+    batches_with_no_evidence = 0
     per_source_processed = [0] * len(sources)
     major_fact_ids = defaultdict(list)
     processed = 0
@@ -60,6 +61,8 @@ def analyze_all_sources(sources: list[dict], records, text, grade, candidates,
         else:
             partial = {'facts': [], 'major_links': []}
         local_facts = partial.get('facts', [])
+        if not local_facts:
+            batches_with_no_evidence += 1
         offset = len(merged_facts)
         for fact in local_facts:
             local_index = fact['source_index']
@@ -108,6 +111,7 @@ def analyze_all_sources(sources: list[dict], records, text, grade, candidates,
         'activities_with_verified_facts': sum(bool(x['verified_facts']) for x in activity_coverage),
         'activities': activity_coverage,
         'status': 'complete', 'input_chars': expected_chars,
+        'batches_without_verified_facts': batches_with_no_evidence,
         'processed_chars': processed, 'batches': len(batches),
         'grades_received': sorted({int(s['grade']) for s in sources if str(s.get('text') or '').strip()}),
         'grades_with_verified_facts': sorted({int(sources[f['source_index']]['grade']) for f in merged_facts}),
