@@ -222,7 +222,7 @@ function renderDashboard(data) {
   if (data.aiReview?.status === "error" || data.aiReview?.status === "fallback") {
     const failed = card("분석 서비스 오류", "span-full");
     failed.append(el("p", "evidence", "학생부 내용이 부족하다는 뜻이 아닙니다. AI 의미 분석이 완료되지 않아 점수와 추천을 생성하지 않았습니다."));
-    failed.append(el("p", "evidence", "Render의 환경변수 OPENROUTER_API_KEY / OPENROUTER_MODEL을 확인하고, 서버 로그에서 실제 오류 원인을 확인해 주세요."));
+    failed.append(el("p", "evidence", "Render의 환경변수 OPENAI_API_KEY / OPENAI_MODEL을 확인하고, 서버 로그에서 실제 오류 원인을 확인해 주세요."));
     const retry = el("button", "btn btn-primary", "다시 분석하기");
     retry.type = "button";
     retry.style.marginTop = "16px";
