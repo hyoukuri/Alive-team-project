@@ -1,7 +1,7 @@
-"""SEEDU:ON Rubric 3.2 - light AI, short input, success caching, 429 cooldown.
+"""SEEDU:ON Rubric 3.2 API — full-record semantic analysis.
 
-This version preserves the existing endpoints and scoring behavior while logging
-safe, actionable AI failure diagnostics. No API keys or student record text are logged.
+All student-record segments must be processed successfully before returning an
+AI-scored result. No API keys or student text are logged.
 """
 from __future__ import annotations
 
@@ -35,8 +35,8 @@ app.add_middleware(
 from accounts import router as accounts_router
 app.include_router(accounts_router)
 from rubric_engine import make_roadmap, analyze_records
-from semantic_engine import prepare, candidates_from_sources, build_analysis
-from ai_semantic import request_semantics
+from semantic_engine import prepare, candidates_from_sources
+from full_record_analysis import analyze_all_sources
 
 LOG = logging.getLogger('seedu.main')
 VERSION = 'rubric-3.2-behavior-anchors'
@@ -50,7 +50,7 @@ _lock = threading.Lock()
 
 
 class AnalyzeRequest(BaseModel):
-    grade: int = Field(default=1, ge=1, le=3)
+    grade: int = Field(default=1, ge=1, le=2)
     records: Any = None
     text: str = ''
     subjects: list[str] = Field(default_factory=list)
@@ -59,7 +59,7 @@ class AnalyzeRequest(BaseModel):
 
 
 class RoadmapRequest(BaseModel):
-    grade: int = Field(default=1, ge=1, le=3)
+    grade: int = Field(default=1, ge=1, le=2)
     major: str = ''
     records: Any = None
     text: str = ''
@@ -78,7 +78,6 @@ def health():
 
 
 def _cache_key(req):
-    # Hash of student inputs; no raw personal data in cache keys or logs.
     data = {
         'grade': req.grade,
         'records': req.records,
@@ -93,7 +92,7 @@ def _cache_key(req):
 
 
 def _preview(req, why):
-    """Conservative rule preview, explicitly NOT semantic-AI or a validated grade."""
+    """Conservative rule preview; not verified semantic-AI analysis."""
     result = analyze_records(req.records, req.text, req.grade)
     for c in result.get('competencies', []):
         if type(c.get('rating')) is int:
@@ -131,11 +130,6 @@ def _preview(req, why):
 
 
 def _safe_error_message(exc: Exception) -> str:
-    """Log semantic validation messages, never request/response bodies or secrets.
-
-    ValueError comes from our own short validation errors. OpenAI HTTP errors may
-    embed upstream bodies or user input, so those are *not* dumped verbatim.
-    """
     if not isinstance(exc, ValueError):
         return '-'
     message = str(exc).replace('\r', ' ').replace('\n', ' ')
@@ -143,8 +137,6 @@ def _safe_error_message(exc: Exception) -> str:
     if key:
         message = message.replace(key, '[REDACTED_API_KEY]')
     message = re.sub(r'sk-or-[A-Za-z0-9_-]+', '[REDACTED_API_KEY]', message)
-    # The locally generated validation messages are short. Avoid logging any
-    # unexpected lengthy content that might include a model's input/output.
     if len(message) > 240:
         return '[validation message truncated; inspect ai_semantic.py]'
     return message or '-'
@@ -202,7 +194,10 @@ def analyze(req: AnalyzeRequest):
         else:
             owner = False
     if limited:
-        return _preview(req, 'free_model_cooldown')
+        raise HTTPException(status_code=503, detail={
+            'code': 'AI_COOLDOWN',
+            'message': 'AI 사용량 제한으로 전체 세특 분석을 시작할 수 없습니다. 잠시 후 다시 시도해 주세요.',
+        })
     if not owner:
         existing.wait(timeout=42)
         with _lock:
@@ -211,15 +206,14 @@ def analyze(req: AnalyzeRequest):
                 result = copy.deepcopy(cached[1])
                 result['ai_review'] = {**result['ai_review'], 'cached': True}
                 return result
-        return _preview(req, 'ai_busy_or_unavailable')
+        raise HTTPException(status_code=503, detail='전체 세특 분석 대기 시간이 초과되었습니다. 다시 시도해 주세요.')
     try:
         candidates = candidates_from_sources(sources)
-        raw = request_semantics(sources, candidates)
-        result = build_analysis(raw, req.records, req.text, req.grade, sources, candidates)
+        result = analyze_all_sources(sources, req.records, req.text, req.grade, candidates)
         result['rubric_version'] = VERSION
         result['ai_review'] = {
             'used': True, 'status': 'reviewed',
-            'reason': 'short_semantic_extraction', 'cached': False,
+            'reason': 'full_record_semantic_extraction', 'cached': False,
         }
         with _lock:
             _cache[key] = (time.monotonic() + CACHE_TTL, copy.deepcopy(result))
@@ -232,7 +226,14 @@ def analyze(req: AnalyzeRequest):
         if status == 429:
             with _lock:
                 _last_limited_until = time.monotonic() + LIMIT_COOLDOWN
-        return _preview(req, 'rate_limited' if status == 429 else type(exc).__name__)
+        raise HTTPException(
+            status_code=503,
+            detail={
+                'code': 'FULL_ANALYSIS_INCOMPLETE',
+                'message': '전체 세특 분석이 완료되지 않았습니다. 잠시 후 다시 시도해 주세요.',
+                'retryable': status in (429, 500, 502, 503, 504),
+            },
+        ) from exc
     finally:
         with _lock:
             event = _inflight.pop(key, None)
