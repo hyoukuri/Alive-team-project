@@ -179,8 +179,14 @@ def competencies_from_ai(raw, facts):
                         activity_cap=4
                 cap=max(cap,activity_cap)
             rating = min(rating, cap)
-        evidence = (f"{facts_for[0]['grade']}학년 {facts_for[0]['source']}: {facts_for[0]['quote']}" if facts_for else
-                    "근거를 확인하지 못했습니다. 평가를 보류합니다.")
+        # Representative evidence must not always be the first activity.
+        unique = {}
+        for fact in facts_for:
+            unique.setdefault((fact['grade'], fact['source']), fact)
+        selected_facts = list(unique.values())
+        evidence = (' / '.join(f"{f['grade']}학년 {f['source']}: {f['quote'][:110]}"
+                             for f in selected_facts[:6])
+                    + (f" / 외 {len(selected_facts)-6}개 활동" if len(selected_facts)>6 else '')) if facts_for else "근거를 확인하지 못했습니다. 평가를 보류합니다."
         result.append({"name":name,"rating":rating,"score":rating*25 if rating is not None else None,
                        "status":"rated" if rating is not None else "insufficient_evidence",
                        "evidence":evidence,
@@ -293,21 +299,29 @@ def majors_from_ai(raw_links, facts, candidates):
             continue
         partial = round(sum(categories.values()), 2)
         reason = ""  # Use only verified student-record quotes, not unverified AI paraphrases.
-        # Show diverse, verifiable subject-specific examples instead of one
-        # repeated early quote. Prefer at most one quote per activity.
-        selected = []
-        seen_sources = set()
+        # Never silently truncate the evidence at the first 3-4 activities.
+        # Preserve all distinct linked sources and rotate the visible samples
+        # across grades while reporting the complete linked activity names.
+        distinct = {}
         for fact in linked:
-            source_key = (fact["grade"], fact["source"])
-            if source_key in seen_sources:
-                continue
-            seen_sources.add(source_key)
-            selected.append(f'{fact["grade"]}학년 {fact["source"]}: {fact["quote"][:90]}')
-            if len(selected) >= 4:
-                break
-        evidence_quote = " / ".join(selected)
-        if not reason:
-            reason = f"학생부에 확인된 관련 활동: {evidence_quote}"
+            distinct.setdefault((fact["grade"], fact["source"]), fact)
+        by_grade = defaultdict(list)
+        for key, fact in distinct.items():
+            by_grade[key[0]].append(fact)
+        ordered = []
+        while any(by_grade.values()):
+            for g in sorted(by_grade):
+                if by_grade[g]:
+                    ordered.append(by_grade[g].pop(0))
+        linked_names = [f'{f["grade"]}학년 {f["source"]}' for f in ordered]
+        # Include the name of *every* connected activity. Full quotes are in
+        # structured evidence_sources; limit prose samples for readability.
+        samples = [f'{f["grade"]}학년 {f["source"]}: {f["quote"][:100]}' for f in ordered[:8]]
+        reason = (f"전공 관련 근거 확인 활동 ({len(ordered)}개): "
+                  + ', '.join(linked_names)
+                  + (". 대표 근거: " + ' / '.join(samples) if samples else ''))
+        evidence_sources = [{"grade": f["grade"], "source": f["source"],
+                             "quote": f["quote"]} for f in ordered]
         fit = {
             "major": major, "ratings": nested,
             "category_scores": {k: round(v, 2) for k, v in categories.items()},
@@ -316,10 +330,11 @@ def majors_from_ai(raw_links, facts, candidates):
             "partial_score": partial, "coverage_weight": coverage,
             "score_status": "complete" if coverage == 100 else "insufficient_evidence",
             "indicator_details": details, "evidence": reason,
+            "evidence_sources": evidence_sources,
             "improvement": "N/E 지표는 평가되지 않았으며 0점으로 계산하지 않습니다. 확인된 항목의 부분 점수만 제공합니다."
         }
         recommendation = {
-            "major": major, "reason": reason,
+            "major": major, "reason": reason, "evidence_sources": evidence_sources,
             "learning_value": LEARNING_VALUE.get(major, "해당 전공의 교과 구조와 학습 내용을 탐색해 보세요."),
             "exploration": "활동의 이유·수행 과정·검증 결과를 기록해 보세요.",
             "status": "exploration_candidate" if coverage < 100 else "evaluated"
@@ -420,12 +435,14 @@ def build_analysis(raw, records, text, grade, sources, candidates):
     for g in grades_with_evidence:
         year_facts = [f for f in facts if f["grade"] == g]
         chosen = []
+        seen_sources = set()
         for f in year_facts:
-            if f["quote"] not in chosen:
-                chosen.append(f["quote"])
-            if len(chosen) == 2:
-                break
-        observed = " / ".join(f'“{q[:95]}{"…" if len(q)>95 else ""}”' for q in chosen)
+            if f['source'] not in seen_sources:
+                seen_sources.add(f['source'])
+                chosen.append(f"{f['source']}: “{f['quote'][:75]}{'…' if len(f['quote'])>75 else ''}”")
+        observed = ' / '.join(chosen[:6])
+        if len(chosen) > 6:
+            observed += f" / 외 {len(chosen)-6}개 활동에서 근거 확인"
         caveat = ("단일 학년 기록으로는 학년 간 성장 여부를 판단할 수 없습니다."
                   if len(grades_with_evidence) == 1 else
                   "학년 간 변화나 향상은 동일 주제의 후속 기록과 함께 검토해야 합니다.")
