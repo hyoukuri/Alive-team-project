@@ -311,6 +311,34 @@ function dedupeGrowthSummary(value) {
 function conciseText(value) { return evidenceSummary(value); }
 function compactEvidence(value) { return evidenceSummary(value); }
 function seeduFeedbackSummary(value) { return evidenceSummary(value); }
+// Select distinct existing records only. No invented or cross-subject
+// sentences; the original source text is kept under the expand control.
+function selectCompetencyEvidence(raw, competency, limit = 3) {
+  const entries = uniqueEvidenceItems(splitEvidenceEntries(raw))
+    .filter(x => x && !/^외\\s+\\d+개\\s+활동/.test(x) && !/(?:…|\\.\\.\\.)/.test(x));
+  const terms = {
+    "학업역량": /이해|적용|활용|계산|해석|분석|설명|문제|개념|정리|비교|방정식|함수|수학|과학|실험|보고서|중화|인포그래픽|자료/,
+    "진로역량": /진로|전공|직업|학과|탐색|연계|심화|관련|계획/,
+    "탐구역량": /탐구|조사|실험|측정|검증|설계|분석|비교|자료|오차/,
+    "공동체역량": /협업|협력|조율|팀|모둠|역할|기여|공동|지원|의견/,
+    "성장가능성": /피드백|수정|보완|개선|성찰|재검토|발전|후속|재실험/
+  };
+  const activity = /조사|비교|분석|실험|측정|제작|발표|작성|탐구|검증|토론|해석|설계|정리|제안|수집|평가|활용|관찰|설명|수정|개선/;
+  const scored = entries.map((entry, index) => {
+    const {label, body} = evidenceEntryParts(entry);
+    const meaningful = String(body || "").replace(/^[“"'‘’]+|[“"'‘’]+$/g, "").trim();
+    const matches = terms[competency]?.test(meaningful) || false;
+    return {entry, index, label, meaningful, matches,
+      score: (matches ? 3 : 0) + (activity.test(meaningful) ? 2 : 0) +
+        (/\\d|결과|그래프|보고서|발표자료|산출물/.test(meaningful) ? 1 : 0)};
+  }).filter(x => x.meaningful.length >= 15 && activity.test(x.meaningful));
+  // Do not present unrelated activities as a competency-specific top three.
+  const relevant = scored.filter(x => x.matches).sort((a,b) => b.score-a.score || a.index-b.index);
+  return relevant.slice(0, limit).map(x => {
+    const prefix = x.label ? x.label + ": " : "";
+    return prefix + x.meaningful;
+  });
+}
 function appendEvidencePreview(parent, raw, heading = "원문 근거 보기") {
   const source = String(raw || "").trim();
   if (!source) return;
@@ -474,11 +502,21 @@ function renderDashboard(data) {
       box.append(track);
     }
     if (item.evidence) {
-      const detail = el("details", "seedu-skill-detail");
-      detail.append(el("summary", "", "평가 근거 보기"));
-      detail.append(el("p", "", evidenceSummary(item.evidence)));
-      appendEvidencePreview(detail, item.evidence);
-      box.append(detail);
+      // Show up to three distinct, source-linked records. Never generate a
+      // score justification by copying one arbitrary sentence.
+      const evidencePanel = el("div", "seedu-skill-detail");
+      evidencePanel.append(el("p", "seedu-evidence-heading", "핵심 평가 근거"));
+      const examples = selectCompetencyEvidence(item.evidence, item.name, 3);
+      if (examples.length) {
+        const list = el("ul", "seedu-core-evidence-list");
+        examples.forEach(entry => list.append(el("li", "seedu-core-evidence-item", entry)));
+        evidencePanel.append(list);
+        evidencePanel.append(el("p", "seedu-core-evidence-note", "대표 활동을 간추린 것으로, 각 활동의 점수 기여도를 뜻하지 않습니다."));
+      } else {
+        evidencePanel.append(el("p", "seedu-core-evidence-note", "확인 가능한 개별 활동 근거가 부족합니다."));
+      }
+      appendEvidencePreview(evidencePanel, item.evidence, "전체 원문 근거 보기");
+      box.append(evidencePanel);
     }
     scores.append(box);
   });
@@ -528,18 +566,6 @@ function renderDashboard(data) {
   feedbackWrap.append(strengthCard, improvementCard);
   analysisResults.append(feedbackWrap);
 
-  // Preserve the original five-competency feedback as a separate disclosure.
-  const generalDetails = el("details", "seedu-general-feedback span-full");
-  generalDetails.append(el("summary", "", "공통 5대 역량 강점·보완 분석도 보기"));
-  const generalGrid = el("div", "seedu-feedback-grid");
-  [["공통 역량 강점", data.strengths, "strength-card"], ["공통 역량 보완", data.improvements, "improve-card"]].forEach(([heading, values, klass]) => {
-    const box = card(heading, `feedback-card ${klass} seedu-brief-feedback`);
-    appendFeedbackList(box, uniqueEvidenceItems(values).slice(0, 2).map(seeduFeedbackSummary));
-    generalGrid.append(box);
-  });
-  generalDetails.append(generalGrid);
-  analysisResults.append(generalDetails);
-
   const majors = card("근거 중심 전공 탐색", "span-full");
   const majorList = el("div", "major-list");
 
@@ -560,7 +586,6 @@ function renderDashboard(data) {
     const complete = item.scoreStatus === "complete" && item.fit !== null && coverage === 100;
     box.append(el("p", "major-rank", complete ? "종합 평가 완료" : "전공 탐색 후보 · 종합 평가 보류"));
     box.append(el("h3", "major-name", item.name));
-    box.append(el("p", "evidence seedu-major-reason", evidenceSummary(item.reason) || "전공 관련 활동의 근거를 추가 확인해야 합니다."));
     appendEvidencePreview(box, item.reason, "추천 근거 원문 보기");
 
     const details = el("details", "major-fit-details seedu-major-details");
@@ -612,7 +637,7 @@ function renderDashboard(data) {
       const row = el("div", "score-item seedu-indicator-row");
       const heading = el("div", "score-heading");
       heading.append(el("strong", "", category));
-      heading.append(el("span", "score-number", rated ? `부분 점수 ${value.toFixed(1)}점 · 평가 가능한 배점 ${covered}/${maximum}점` : `평가 보류 · 전체 배점 ${maximum}점`));
+      heading.append(el("span", "score-number", rated ? `${value.toFixed(1)}점` : "평가 보류"));
       row.append(heading);
       if (rated) {
         const track = el("div", "bar-track");
@@ -658,10 +683,6 @@ function renderDashboard(data) {
       details.append(row);
     });
     details.append(el("p", "seedu-rubric-provenance", "평가 체계: 교육·AI 관련 연구를 참고한 SEEDU:ON 자체 루브릭 3.2. 0~4등급, 16개 지표 및 30·25·20·15·10점 배점은 프로젝트 자체 설계 기준이며, 학술 논문에서 검증된 점수표를 그대로 사용한 것이 아닙니다."));
-    if (item.improvement) {
-      details.append(el("p", "evidence seedu-brief-evidence", `보완 방향: ${evidenceSummary(item.improvement)}`));
-      appendEvidencePreview(details, item.improvement, "보완 안내 원문 보기");
-    }
     box.append(details);
     majorList.append(box);
   });
