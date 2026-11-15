@@ -672,10 +672,8 @@ function renderDashboard(data) {
             indicator.append(el("p", "seedu-indicator-criterion", `등급의 일반적 의미: ${levelMeaning[rating] || "평가 가능한 자료에서 확인된 수행 수준"}. 실제 판단은 아래 연결된 기록을 확인해야 합니다.`));
             const quote = String(d.quote || "").trim();
             if (quote && d.verified) {
-              const grade = d.grade ? `${d.grade}학년 · ` : "";
-              const source = String(d.source || "출처 미표시");
-              indicator.append(el("p", "seedu-indicator-source", `연결된 기록: ${grade}${source}`));
-              indicator.append(el("p", "seedu-indicator-quote", evidenceSummary(quote)));
+              // Do not repeat the same source as both a visible 'linked record'
+              // and an expandable 'original evidence'. Keep the original only.
               appendEvidencePreview(indicator, quote, "근거 원문 보기");
             } else {
               indicator.append(el("p", "seedu-ne-guidance", "이 지표의 원문 근거가 전달되지 않았습니다. 점수의 타당성을 별도로 확인해야 합니다."));
