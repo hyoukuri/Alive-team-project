@@ -97,3 +97,13 @@
 #plan-results .activity-steps {padding-inline-start:24px!important;max-width:100%;}
 #plan-results .activity-steps li {padding-inline-start:3px;}
 #plan-results .activity-number {display:inline-block;}
+
+/* Roadmap containment: cover every nested grid, card, list and markdown block. */
+#plan-page, #plan-page *, #plan-results, #plan-results * {box-sizing:border-box;min-width:0;}
+#plan-results {display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:16px;width:100%;max-width:100%;}
+#plan-results > * {min-width:0!important;max-width:100%!important;width:auto!important;overflow:hidden;}
+#plan-results .result-intro {grid-column:1/-1!important;}
+#plan-results .activity-item, #plan-results .subject-item, #plan-results .grade-plan-item {overflow-wrap:anywhere!important;word-break:break-word!important;white-space:normal!important;}
+#plan-results :is(p,li,h1,h2,h3,h4,strong,span,div) {overflow-wrap:anywhere!important;word-break:break-word!important;white-space:normal!important;max-width:100%;}
+#plan-results :is(ul,ol) {padding-inline-start:1.25rem!important;margin-inline:0!important;}
+@media(max-width:800px){#plan-results{grid-template-columns:minmax(0,1fr)!important;}}

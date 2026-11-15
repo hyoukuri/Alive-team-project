@@ -219,24 +219,32 @@ function radarChart(items) {
 // 화면에서 원문을 중간에 자르지 않고, 핵심 수행 행위를 완결된 문장으로 요약합니다.
 // 원문은 세부 보기에서 별도로 확인할 수 있습니다.
 function evidenceSummary(value) {
-  let raw = String(value ?? "").replace(/\s+/g," ").trim();
-  if (!raw) return "이 항목에 연결된 근거가 없습니다.";
-  // 기존 저장 결과가 이미 끝부분을 잘랐다면 잘린 구절은 주장하지 않는다.
-  raw = raw.replace(/(?:…|\.{3,})[”"']?/g," ").replace(/\s+/g," ").trim();
-  const labelMatch = raw.match(/(?:^|\s|\/)\s*(?:\d학년\s+)?(?:과목:\s*)?([가-힣A-Za-z0-9· ]{2,24}(?:활동|국어\d?|수학\d?|영어\d?|과학\d?|사회\d?|한국사\d?)?)\s*[:：]/);
-  const label = labelMatch ? labelMatch[1].trim() : "";
-  const body = labelMatch ? raw.slice(labelMatch.index + labelMatch[0].length).trim() : raw.replace(/^확인된 활동\s*[:：]\s*/,"");
-  const candidates = body.split(/(?<=[.!?。])\s+|\s*\/\s*/).map(s=>s.trim()).filter(Boolean);
-  const activity = /(분석|비교|조사|탐구|발표|작성|제작|실험|측정|검증|제안|설명|정리|토론|협력|적용|해석|평가|개선|발견|구성|활용|시각화|참여|검토|수집|계획|감상|읽|학습)/;
-  const sentence = candidates.find(s=>activity.test(s) && s.length<=115 && /[.。]$/.test(s))
-    || candidates.find(s=>activity.test(s) && s.length<=115 && !/[,，]$/.test(s));
-  if (sentence) return `${label?label+": ":""}${sentence.replace(/[.,，]+$/,"")}.`;
-  // 불완전한 인용문은 임의로 문장 끝을 붙여 완성된 것처럼 보이지 않는다.
-  const quoted = body.match(/[“"'‘]([^”"'’]{3,65})[”"'’]/);
-  const topic = quoted ? quoted[1] : "해당 교과 주제";
-  const verbs = [...body.matchAll(new RegExp(activity.source,"g"))].map(x=>x[0]);
-  const verb = verbs[verbs.length-1] || "학습";
-  return `${label?label+": ":""}${topic}에 관한 ${verb} 활동이 기록되어 있습니다.`;
+  const raw = String(value ?? '').replace(/\s+/g, ' ').trim();
+  if (!raw) return '이 항목에서 확인된 활동 근거가 없습니다.';
+  // The source can already be truncated by the backend or an old saved analysis.
+  // Never display a dangling fragment as though it were a complete summary.
+  const source = raw.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+  const label = source.match(/(?:^|\s)(?:\d학년\s+)?(?:과목:\s*)?((?:공통|통합|과학탐구|한국사|정보|체육|음악|미술|기술|가정|진로|자율)[가-힣A-Za-z0-9· ]{0,16})\s*[:：—]/);
+  const prefix = label ? label[1].trim() + ': ' : '';
+  const body = label ? source.slice(label.index + label[0].length) : source;
+  const clean = body.replace(/^(?:확인된 활동|추천 근거)\s*[:：]\s*/, '').trim();
+  const sentences = clean.split(/(?<=[.!?。])\s+/).map(s => s.trim());
+  const action = /(조사|비교|분석|실험|측정|제작|발표|작성|탐구|검증|토론|해석|설계|정리|제안|수집|평가|활용|관찰|설명)/;
+  const complete = sentences.find(s => s.length >= 18 && s.length <= 190 && /[.!?。]$/.test(s) && !/[.…]{2,}/.test(s) && action.test(s));
+  if (complete) return prefix + complete;
+  const title = clean.match(/["']([^"']{4,65})["']/)?.[1];
+  const topics = [
+    [/산성화|산성비|중화/, '산성비와 중화 방법'],
+    [/지진|진원지|원의 방정식/, '원의 방정식을 이용한 지진 진원지 탐색'],
+    [/중화열|혼합용액|중화점/, '중화 반응의 측정 결과'],
+    [/탱자나무|로트레크|닉부이/, '문학 작품의 표현 방식과 작가의 의도'],
+    [/영어 글쓰기|기억에 남는 경험/, '경험을 소재로 한 영어 글쓰기'],
+  ];
+  const topic = topics.find(([pattern]) => pattern.test(clean))?.[1] || title || '해당 교과 주제';
+  const verbs = [...clean.matchAll(new RegExp(action.source, 'g'))].map(m=>m[0]);
+  const verb = verbs.length ? verbs[verbs.length-1] : null;
+  if (verb) return `${prefix}${topic}에 관한 ${verb} 활동이 기록되어 있습니다.`;
+  return `${prefix}${topic}에 관한 학습 내용이 기록되어 있으나, 구체적인 수행 근거는 원문 확인이 필요합니다.`;
 }
 function conciseText(value) { return evidenceSummary(value); }
 function compactEvidence(value) { return evidenceSummary(value); }
