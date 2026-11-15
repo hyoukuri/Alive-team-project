@@ -319,6 +319,6 @@ def request_semantics(sources,candidates,*,call_fn=None):
             raise ValueError('AI 출력 토큰 한도 초과')
         result=_normalize(_json_object(getattr(getattr(choices[0],'message',None),'content',None)),candidates,spans,sources)
         LOG.info('SEEDU semantic response: model=%s completion=%s reasoning=%s',selected,completion,reasoning)
-    if not result['facts'] or not any(c['rating'] is not None for c in result['competencies']):
-        raise ValueError('AI가 유효한 근거 번호·태그를 반환하지 않았습니다')
+    # A valid batch may contain no demonstrable behavior. Only the final, merged
+    # analysis may decide whether there is enough evidence to score at all.
     return result
