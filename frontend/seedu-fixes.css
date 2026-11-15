@@ -77,3 +77,9 @@
  #analysis-results .major-list {grid-template-columns:minmax(0,1fr);}
 }
 @media(max-width:650px){#analysis-results .seedu-feedback-grid {grid-template-columns:minmax(0,1fr);}}
+
+/* 세부 증빙은 접고, 화면에는 완결된 요약문만 출력 */
+#analysis-results .seedu-original-evidence {margin-top:8px;color:#53657d;font-size:.82rem;}
+#analysis-results .seedu-original-evidence summary {cursor:pointer;font-weight:600;color:#285e7b;}
+#analysis-results .seedu-original-evidence p {white-space:normal;overflow-wrap:anywhere;line-height:1.7;margin:8px 0;}
+#analysis-results .seedu-ne-guidance {margin:6px 0 0;color:#657080;font-size:.82rem;line-height:1.55;}

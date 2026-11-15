@@ -328,37 +328,66 @@ def analyze_records(records, text, grade):
 
 
 def make_roadmap(major, grade, records, text):
+    """학과+입력된 학습 주제에 맞는 단계형 탐구 3개.
+
+    기록에 없는 활동을 수행했다고 주장하지 않는다. 정보 부족은
+    평가 점수가 아닌 향후 탐색 계획으로 돌려준다.
+    """
+    major = str(major or "").strip()
+    if not major:
+        raise ValueError("희망 학과를 선택해 주세요.")
+    grade = max(1, min(2, int(grade or 1)))
     chunks = _record_chunks(records, text)
-    related = [x for x in chunks if any(k in x['text'].casefold() for k in MAJORS.get(major, set()))]
-    basis = related[0]['quote'][:75] if related else "현재 학생부에 명시된 활동 근거가 충분하지 않음"
-    subject_map = {
-        "인공지능학과": ["수학", "정보", "인공지능 기초"],
-        "컴퓨터공학과": ["수학", "정보", "인공지능 기초"],
-        "데이터사이언스학과": ["확률과 통계", "정보", "수학"],
-        "수학과": ["대수", "미적분", "확률과 통계"],
-    }
-    # Broad elective guidance for expanded majors (actual school offerings vary).
-    for names, electives in [
-        (("공학", "반도체", "로봇", "자동차", "항공", "건축", "토목", "에너지", "소프트웨어", "정보보안"), ["대수", "미적분", "물리학"]),
-        (("화학", "생명", "의학", "의예", "약학", "치의", "수의", "간호", "보건", "식품"), ["화학", "생명과학", "확률과 통계"]),
-        (("경제", "경영", "무역", "통상", "회계", "금융", "행정", "정치", "법학", "복지"), ["사회와 문화", "경제", "확률과 통계"]),
-        (("문학", "언어", "역사", "철학", "교육", "미디어", "홍보"), ["독서와 작문", "세계사", "사회와 문화"]),
-        (("디자인", "영상", "애니메이션", "음악", "국악", "무용", "체육", "스포츠"), ["예술 관련 선택과목", "진로 관련 실습", "융합 선택과목"]),
-        (("지구", "천문", "해양", "산림", "농생명", "스마트팜", "환경"), ["지구과학", "생명과학", "확률과 통계"]),
-    ]:
-        if major not in subject_map and any(name in major for name in names):
-            subject_map[major] = electives
-            break
-    subjects = subject_map.get(major, ["관련 기초 교과", "탐구 과목", "융합 선택 과목"])
-    acts = [
-        ("문제와 기준 정하기", "전공 관련 질문을 정하고 평가 기준·비교군을 명시합니다."),
-        ("소규모 탐구 실행", "자료 수집, 탐구 설계, 실행 결과를 일지로 기록합니다."),
-        ("검증과 개선", "오차·한계를 검토하고 방법을 수정하여 결과를 다시 비교합니다."),
+    keys = MAJORS.get(major, set())
+    related = [x for x in chunks if any(k in x['text'].casefold() for k in keys)]
+    # 가장 최근 자료보다 탐구 과정(실험·비교·측정 등)이 기술된 실제 기록을 우선합니다.
+    actions = ("탐구", "측정", "분석", "비교", "실험", "조사", "설계", "토론", "제작", "검증")
+    basis_entry = next((x for x in related if any(k in x['text'] for k in actions)), None)
+    if basis_entry is None:
+        basis_entry = next((x for x in chunks if any(k in x['text'] for k in actions)), None)
+    basis_source = basis_entry['source'] if basis_entry else None
+    # 분야별 내용은 학과명으로 분류하되 모든 활동은 '앞으로 할 제안'으로 명시합니다.
+    fields = [
+        (("인공지능", "컴퓨터", "소프트웨어", "데이터", "정보보안", "통계"),
+         ["대수", "확률과 통계", "정보"], "자료의 패턴과 예측", "데이터 표본 구성 및 시각화", "간단한 예측·분류 방법 비교", "오차와 편향 검토"),
+        (("환경", "지구", "천문", "해양", "산림", "농생명", "스마트팜"),
+         ["지구과학", "생명과학", "확률과 통계"], "환경과 관측 자료의 변화", "관측·공개자료 수집", "기간·조건별 추세 비교", "예외 사례와 변수 검증"),
+        (("수학", "통계", "물리"),
+         ["대수", "미적분", "확률과 통계"], "수학적 모델과 실제 자료의 관계", "문제 조건과 데이터 정리", "대안 모델·풀이 방법 비교", "가정과 오차 검토"),
+        (("기계", "로봇", "반도체", "전기", "전자", "자동차", "항공", "건축", "토목", "에너지", "공학"),
+         ["대수", "미적분", "물리학"], "구조·물리량의 변화", "측정 기준과 작동 원리 조사", "모형·계산 결과 비교", "조건 변화에 따른 설계 개선"),
+        (("화학", "생명", "의학", "의예", "약학", "치의", "수의", "간호", "보건", "식품"),
+         ["화학", "생명과학", "확률과 통계"], "생명·물질과 실험 변수", "안전한 문헌 및 공개자료 조사", "변수에 따른 결과 비교", "오차와 윤리적 한계 검토"),
+        (("경제", "경영", "무역", "통상", "회계", "금융", "정치", "행정", "법학", "사회", "복지"),
+         ["경제", "사회와 문화", "확률과 통계"], "사회 현상의 원인과 영향", "공개 통계·사례 비교", "이해관계자 관점의 차이 분석", "해결책의 비용·형평성 검토"),
+        (("국어", "문학", "언어", "역사", "철학", "교육", "미디어", "홍보"),
+         ["독서와 작문", "사회와 문화", "세계사"], "텍스트와 사회적 맥락", "자료·관점별 텍스트 비교", "근거에 따른 해석 구성", "반론과 해석 한계 검토"),
+        (("디자인", "영상", "애니", "음악", "미술", "체육", "스포츠", "무용"),
+         ["예술 관련 선택과목", "진로 관련 실습", "융합 선택과목"], "표현 방법과 수용자 경험", "작품 및 사례 비교", "콘셉트 시안·동작 구성", "피드백을 반영한 개선"),
+        (("지구", "천문", "해양", "산림", "농생명", "스마트팜", "환경"),
+         ["지구과학", "생명과학", "확률과 통계"], "환경과 관측 자료의 변화", "관측·공개자료 수집", "기간·조건별 추세 비교", "예외 사례와 변수 검증"),
     ]
-    return {"rubric_version":VERSION,"analysis_mode":"rule_based","major":major,
-            "recommended_subjects":[{"subject":s,"reason":f"{major}의 기초 학습과 연결됩니다. 학교 개설 여부를 확인하세요."} for s in subjects],
-            "research_activities":[{"title":title,"description":desc,"steps":["목표 설정", "실행 및 기록", "결과 점검", "성찰과 개선"],"expected_result":"활동 일지와 검증 가능한 탐구 보고서"} for title,desc in acts],
-            "grade_plan":[{"grade":g,"goal":("현재 수행 근거를 정리" if g==grade else "전공 탐색 심화"),
-                           "actions":["관심과 문제를 구체적으로 설정", "활동을 실행하고 결과 기록", "피드백을 반영하여 후속 탐구 계획"]}
-                           for g in range(grade,4)],
-            "advice":f"현재 입력 근거: {basis}. 목표→실행→점검→성찰→조정 순서로 기록하세요. 이 로드맵은 템플릿 기반 제안이며 이미 수행한 활동이 아닙니다."}
+    subjects = ["관련 기초 교과", "탐구 과목", "융합 선택과목"]
+    topic, step1, step2, step3 = ("전공 관련 문제", "자료 수집", "비교 분석", "결과 검증")
+    for keys2, s, t, p1, p2, p3 in fields:
+        if any(k in major for k in keys2):
+            subjects, topic, step1, step2, step3 = s, t, p1, p2, p3
+            break
+    context = f"{basis_source}의 실제 기록" if basis_source else "기존 기록에서 수행 근거가 명확하지 않은 상태"
+    acts = [
+        {"title":f"{major} 연계 질문 설계", "description":f"{context}을 출발점으로 {topic}에 관한 구체적인 질문을 만듭니다. {step1}에 앞서 평가 기준을 정해 보세요.",
+         "steps":["기존 기록의 주제와 아직 확인되지 않은 점 구분", "탐구 질문·비교 기준 작성", "출처와 자료 수집 계획 수립"],"expected_result":"탐구 질문지·자료 목록"},
+        {"title":f"{topic} 탐구 실행", "description":f"{major} 관련 방법을 적용하여 {step2}을 수행하고 결과를 표·그래프·논증으로 기록하도록 제안합니다.",
+         "steps":["공개자료 또는 안전한 측정 자료 확보", step2, "과정·한계·중간 결과 기록"],"expected_result":"탐구 보고서 초안·결과 표"},
+        {"title":f"{major} 탐구 검증과 심화", "description":f"앞 단계 결과에 대해 {step3}을 진행하고, 다른 조건에서도 같은 결론이 성립하는지 점검합니다.",
+         "steps":["오류·반례·자료의 편향 확인", step3, "피드백을 반영한 후속 질문 도출"],"expected_result":"보완 보고서·후속 탐구 계획"},
+    ]
+    return {
+        "rubric_version":VERSION,"analysis_mode":"rule_based_planning","major":major,
+        "evidence_status":"related" if related else "not_confirmed",
+        "recommended_subjects":[{"subject":s,"reason":f"{major} 탐색과 관련된 과목 예시입니다. 학교 개설 여부를 확인하세요."} for s in subjects],
+        "research_activities":acts,
+        "grade_plan":[{"grade":g,"goal":("현재 기록에서 확인된 탐구 주제 정리" if g==grade else "질문·근거를 확장한 심화 탐구"),
+                       "actions":["탐구 질문 수립", "활동·결과 기록", "검증·후속 활동 설계"]} for g in range(grade,4)],
+        "advice":f"연계 출발점: {context}. 학생부 근거 미확인은 능력 부족을 뜻하지 않습니다. 위 탐구는 수행 사실이 아닌 앞으로의 제안입니다."
+    }

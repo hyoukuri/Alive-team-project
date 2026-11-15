@@ -12,6 +12,7 @@ const analyzeButton = $("analyze-button");
 const analysisResults = $("analysis-results");
 const planResults = $("plan-results");
 let latestAnalysis = null;
+let latestAnalyzedRecords = null;
 
 function saveRecord() {
   studentRecords[activeGrade] = textarea.value;
@@ -215,28 +216,41 @@ function radarChart(items) {
   return wrap;
 }
 
-// Keep the full original evidence in the response; shorten only what is shown.
-function conciseText(value, maxLength = 105) {
-  const clean = String(value ?? "").replace(/\s+/g, " ").trim();
-  if (clean.length <= maxLength) return clean;
-  const head = clean.slice(0, maxLength);
-  const boundary = Math.max(head.lastIndexOf(" "), head.lastIndexOf("."), head.lastIndexOf("다."));
-  return `${(boundary >= Math.floor(maxLength * 0.6) ? head.slice(0, boundary) : head).trim()}…`;
+// 화면에서 원문을 중간에 자르지 않고, 핵심 수행 행위를 완결된 문장으로 요약합니다.
+// 원문은 세부 보기에서 별도로 확인할 수 있습니다.
+function evidenceSummary(value) {
+  const raw = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (!raw) return "관련 근거를 확인할 수 없습니다.";
+  const withoutPrefix = raw.replace(/^(?:확인된 활동|근거|과목)\s*[:：]\s*/i, "").trim();
+  const labelMatch = withoutPrefix.match(/^(?:(?:\d학년)\s*)?(과목\s*:\s*[^:：]+|[^:：]{1,22})\s*[:：]\s*/);
+  const label = labelMatch ? labelMatch[1].replace(/^과목\s*:\s*/, "").trim() : "";
+  const body = labelMatch ? withoutPrefix.slice(labelMatch[0].length).trim() : withoutPrefix;
+  const sentenceParts = body.split(/(?<=[.!?。])\s+|\s*[／/]\s*/).map(s => s.trim()).filter(Boolean);
+  const actionPattern = /(분석|비교|조사|탐구|발표|작성|제작|실험|측정|검증|제안|설명|정리|토론|협력|적용|해석|평가|개선|발견|구성|활용|시각화|참여|질문|호응|검토|수집|계획|읽|감상|이해|기록)/;
+  // 긴 인용문·단순 수식보다 학생이 실제로 한 행동이 적힌 문장을 우선 선택합니다.
+  const chosen = sentenceParts.find(s => actionPattern.test(s) && s.length <= 155)
+    || sentenceParts.find(s => actionPattern.test(s)) || sentenceParts[0] || body;
+  if (!chosen) return label ? `${label} 관련 평가 근거를 확인했습니다.` : "평가 근거를 확인했습니다.";
+  if (chosen.length <= 105) return `${label ? `${label}: ` : ""}${chosen.replace(/[.…]+$/g, ".")}`;
+  const verbs = [...chosen.matchAll(new RegExp(actionPattern.source, "g"))].map(m => ({word:m[0],at:m.index}));
+  const mainVerb = verbs.findLast(x => x.at > 8) || verbs[0];
+  const topicQuoted = chosen.match(/[‘'“"]([^’'”"]{3,65})[’'”"]/);
+  const subject = topicQuoted ? topicQuoted[1] : "교과 내용";
+  const acts = verbs.filter(x => x.at > 8).map(x => x.word);
+  const uniqueActs = [...new Set(acts)];
+  const act = uniqueActs.slice(-2).join("·") || (mainVerb ? mainVerb.word : "학습");
+  // 주제·행위 확인까지만 기술하며 결과·능력을 추측하지 않습니다.
+  return `${label ? `${label}: ` : ""}${subject} 관련 ${act} 활동이 기록되어 있습니다.`;
 }
-
-function compactEvidence(value, maxLength = 110) {
-  const text = String(value ?? "").trim();
-  if (!text) return "";
-  const first = text.split(/\s*\/\s*|\n+/).find(Boolean) || text;
-  return conciseText(first, maxLength);
-}
-
-function seeduFeedbackSummary(value) {
-  let text = String(value ?? "").replace(/\s+/g, " ").trim();
-  // Remove raw source markers from short executive summary; preserve source in full evidence panels.
-  text = text.replace(/^\s*[^:：]{1,25}\s*\(\d+\/\d+\)\s*[:：]\s*/, "");
-  const first = text.split(/(?<=[.!?。])\s+|\s*\/\s*(?=[가-힣])/)[0].trim();
-  return conciseText(first || text, 78);
+function conciseText(value) { return evidenceSummary(value); }
+function compactEvidence(value) { return evidenceSummary(value); }
+function seeduFeedbackSummary(value) { return evidenceSummary(value); }
+function appendEvidencePreview(parent, raw, heading = "원문 근거 보기") {
+  const source = String(raw || "").trim();
+  if (!source) return;
+  const details = el("details", "seedu-original-evidence");
+  details.append(el("summary", "", heading), el("p", "", source));
+  parent.append(details);
 }
 
 function renderDashboard(data) {
@@ -323,7 +337,8 @@ function renderDashboard(data) {
     if (item.evidence) {
       const detail = el("details", "seedu-skill-detail");
       detail.append(el("summary", "", "평가 근거 보기"));
-      detail.append(el("p", "", String(item.evidence)));
+      detail.append(el("p", "", evidenceSummary(item.evidence)));
+      appendEvidencePreview(detail, item.evidence);
       box.append(detail);
     }
     scores.append(box);
@@ -346,7 +361,11 @@ function renderDashboard(data) {
     const box = card(heading, `feedback-card ${className} seedu-brief-feedback`);
     const list = el("ul", "seedu-feedback-list");
     const items = values.filter(x => String(x || "").trim()).slice(0, 2);
-    (items.length ? items : [emptyText]).forEach(value => list.append(el("li", "", seeduFeedbackSummary(value))));
+    (items.length ? items : [emptyText]).forEach(value => {
+      const li = el("li", "", seeduFeedbackSummary(value));
+      if (String(value).length > 155) appendEvidencePreview(li, value);
+      list.append(li);
+    });
     box.append(list);
     feedbackWrap.append(box);
   });
@@ -372,7 +391,8 @@ function renderDashboard(data) {
     const complete = item.scoreStatus === "complete" && item.fit !== null && coverage === 100;
     box.append(el("p", "major-rank", complete ? "종합 평가 완료" : "전공 탐색 후보 · 종합 평가 보류"));
     box.append(el("h3", "major-name", item.name));
-    box.append(el("p", "evidence seedu-major-reason", conciseText(item.reason, 80) || "전공 관련 활동의 근거를 추가 확인해야 합니다."));
+    box.append(el("p", "evidence seedu-major-reason", evidenceSummary(item.reason) || "전공 관련 활동의 근거를 추가 확인해야 합니다."));
+    appendEvidencePreview(box, item.reason, "추천 근거 원문 보기");
 
     const details = el("details", "major-fit-details seedu-major-details");
     details.open = true;
@@ -384,6 +404,13 @@ function renderDashboard(data) {
       details.append(el("p", "seedu-evaluation-note", `종합 평가 보류 · 평가 가능한 배점 ${coverage}/100 · 확인된 부분 점수 ${part}/${coverage || '—'}`));
       details.append(el("p", "muted", "부분 점수는 전공 적합도나 학과 순위가 아닙니다. N/E는 0점이 아닙니다."));
     }
+    const nextAction = {
+      "전공 관련 활동":"희망 학과 관련 질문을 정하고 교과 수업에서 실제 수행한 탐구 과정과 결과를 기록해 보세요.",
+      "학업 역량":"해당 분야의 교과 개념을 적용한 풀이·분석·피드백 사례를 확인해 보세요.",
+      "관심의 지속성":"학기별 후속 질문이나 기존 활동을 발전시킨 기록이 있는지 확인해 보세요.",
+      "탐구 심화도":"자료 수집, 비교 기준, 결과 검증과 수정 과정을 포함한 탐구를 계획해 보세요.",
+      "융합 역량":"서로 다른 교과 개념을 연결하여 동일한 문제를 해석한 사례를 찾아보세요."
+    };
     Object.entries(categoryMax).forEach(([category, maximum]) => {
       const covered = Math.max(0, Number(item.categoryCoverage?.[category]) || 0);
       const rawScore = item.categoryScores?.[category];
@@ -392,7 +419,7 @@ function renderDashboard(data) {
       const row = el("div", "score-item seedu-indicator-row");
       const heading = el("div", "score-heading");
       heading.append(el("strong", "", category));
-      heading.append(el("span", "score-number", rated ? `${value.toFixed(1)}점 · 근거 ${covered}/${maximum}` : "근거 미확인"));
+      heading.append(el("span", "score-number", rated ? `${value.toFixed(1)}점 · 근거 ${covered}/${maximum}` : "N/E · 평가 보류"));
       row.append(heading);
       if (rated) {
         const track = el("div", "bar-track");
@@ -401,9 +428,13 @@ function renderDashboard(data) {
         track.append(fill);
         row.append(track);
       }
+      if (!rated) row.append(el("p", "seedu-ne-guidance", `다음 탐색: ${nextAction[category]}`));
       details.append(row);
     });
-    if (item.improvement) details.append(el("p", "evidence seedu-brief-evidence", `보완 방향: ${conciseText(item.improvement, 115)}`));
+    if (item.improvement) {
+      details.append(el("p", "evidence seedu-brief-evidence", `보완 방향: ${evidenceSummary(item.improvement)}`));
+      appendEvidencePreview(details, item.improvement, "보완 안내 원문 보기");
+    }
     box.append(details);
     majorList.append(box);
   });
@@ -444,7 +475,8 @@ function renderDashboard(data) {
         el("span", "growth-year", `${item.grade}학년`)
       );
       const summary = String(item.summary || '');
-      row.append(el("p", "", summary.length > 240 ? summary.slice(0, 240) + '…' : summary));
+      row.append(el("p", "", evidenceSummary(summary)));
+      appendEvidencePreview(row, summary, "성장 기록 원문 보기");
 
       timeline.append(row);
     });
@@ -973,6 +1005,7 @@ async function runAnalysis() {
     );
 
     latestAnalysis = data;
+    latestAnalyzedRecords = { ...records };
     renderDashboard(data);
     showPage(2);
 
@@ -1068,9 +1101,11 @@ async function runRoadmap() {
   setLoading(button, true, "맞춤 로드맵 생성 중...");
   roadmapStatus(`${major}에 맞는 선택과목과 탐구활동을 확인하고 있습니다.`);
   try {
-    const records = collectRecords();
-    const text = Object.entries(records).filter(([,v]) => v).map(([g,v]) => `[${g}학년]\n${v}`).join("\n\n");
-    if (!text.trim()) throw new Error("학생부 원문이 없습니다. 입력 화면에서 세특을 확인한 뒤 다시 분석해 주세요.");
+    const currentRecords = collectRecords();
+    const records = Object.values(currentRecords).some(v => String(v || "").trim())
+      ? currentRecords : (latestAnalyzedRecords || {});
+    const text = Object.entries(records).filter(([,v]) => String(v).trim()).map(([g,v]) => `[${g}학년]\n${v}`).join("\n\n");
+    if (!text.trim()) throw new Error("로드맵을 만들 학생부 원문이 없습니다. 생기부 입력 화면에서 기록을 불러온 뒤 다시 시도해 주세요.");
     const response = await apiRequest("/roadmap", {
       grade:Number(gradeSelect.value), major, records, text, analysis:latestAnalysis
     });
