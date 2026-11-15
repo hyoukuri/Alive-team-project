@@ -9,6 +9,33 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap">
   <link rel="stylesheet" href="style.css">
   <script src="script.js" defer></script>
+  <style id="seedu-results-compact-v2">
+    #analysis-results, #analysis-results * { box-sizing: border-box; }
+    #analysis-results { min-width: 0; overflow-wrap: anywhere; }
+    #analysis-results .result-card, #analysis-results .major-item, #analysis-results .score-item { min-width: 0; max-width: 100%; }
+    #analysis-results .seedu-competency-layout { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); align-items: center; gap: 20px; }
+    #analysis-results .seedu-compact-radar { width: 100%; min-width: 0; }
+    #analysis-results .seedu-compact-radar canvas { display: block; width: 100%; max-width: 100%; height: auto; }
+    #analysis-results .seedu-compact-scores { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; min-width: 0; }
+    #analysis-results .seedu-compact-score { padding: 10px 12px; border-radius: 12px; }
+    #analysis-results .seedu-compact-score .score-heading, #analysis-results .seedu-indicator-row .score-heading { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 5px 12px; }
+    #analysis-results .score-heading strong, #analysis-results .score-number { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+    #analysis-results .seedu-brief-evidence { margin: 7px 0 0; font-size: .86rem; line-height: 1.55; overflow: visible; text-overflow: clip; white-space: normal; display: block; -webkit-line-clamp: unset; line-clamp: unset; }
+    #analysis-results .seedu-feedback-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; min-width: 0; width: 100%; }
+    #analysis-results .seedu-brief-feedback { min-width: 0; margin: 0; }
+    #analysis-results .seedu-feedback-list { margin: 6px 0 0; padding-left: 20px; display: grid; gap: 10px; }
+    #analysis-results .seedu-feedback-list li { line-height: 1.65; overflow-wrap: anywhere; white-space: normal; text-overflow: clip; overflow: visible; display: list-item; -webkit-line-clamp: unset; line-clamp: unset; }
+    #analysis-results .seedu-major-reason { font-size: .91rem; line-height: 1.6; white-space: normal; overflow-wrap: anywhere; }
+    #analysis-results .seedu-major-details { margin-top: 12px; min-width: 0; }
+    #analysis-results .seedu-evaluation-note { font-weight: 600; font-size: .9rem; line-height: 1.6; }
+    #analysis-results .seedu-indicator-row { padding: 9px 0; }
+    #analysis-results .seedu-major-compact { min-width: 0; }
+    @media (max-width: 820px) {
+      #analysis-results .seedu-competency-layout { grid-template-columns: minmax(0, 1fr); }
+      #analysis-results .seedu-compact-radar { max-width: 440px; margin: 0 auto; }
+      #analysis-results .seedu-feedback-grid { grid-template-columns: minmax(0, 1fr); }
+    }
+  </style>
 </head>
 <body data-page="0" data-auth="out">
 
