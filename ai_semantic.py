@@ -38,87 +38,31 @@ SYSTEM = (
     '원문에 확인 가능한 수행 행동이 없는 역량은 비워도 된다. '
     '정확히 JSON 객체 하나만 반환: '
     '{"e":[[0,["learning","method"]],[2,["collaboration"]],[3,["reflection","revision"]]],"m":[[0],[0],[]]}. '
-    'e는 [n,영문태그배열]이며 최대 10개, n은 s에 실제 존재해야 한다. '
+    'e는 [n,영문태그배열]이며 n은 s에 실제 존재해야 한다. 각 구절을 모두 검토하되 수행 근거가 없는 구절은 제외하라. '
     'm은 전공 후보 3개의 관련 근거 번호 배열이다. '
     '태그는 learning,career,question,method,result,validation,revision,collaboration,leadership,'
     'reflection,planning,interdisciplinary,comparison,application,continuity,concept 중에서만 선택. '
-    'e는 학업·진로·탐구만 반복하지 말고 공동체·성장 관련 수행도 검토하라. '
-    '서로 다른 학년의 수행 근거가 실제로 존재한다면 각 학년에서 적어도 하나씩 선택하라. '
-    '없는 행동이나 근거는 만들지 마라. 설명 없이 JSON만 출력.'
+    'e는 학업·진로·탐구만 반복하지 말고 공동체·성장 관련 수행도 검토하라. 설명 없이 JSON만 출력.'
 )
 
 
 def _source_spans(sources: list[dict]) -> list[dict]:
-    """Balance excerpts across grades, retaining exact source substrings.
-
-    This is sampling, not full-record review. No score is inferred from selection.
-    """
+    """Pass every provided chunk verbatim. Caller batches at <=8 x 480 chars."""
     if not sources:
         raise ValueError('학생부 기록 없음')
-
-    records = []
-    for idx, item in enumerate(sources):
-        raw = str(item.get('text') or '').strip()
-        if not raw:
+    spans = []
+    for index, source in enumerate(sources):
+        raw = str(source.get('text') or '')
+        if len(raw) > 500:
+            raise ValueError('세특 분할 크기 초과: 전체 분석 모듈을 사용하세요.')
+        if not raw.strip():
             continue
-        parts = [p.strip() for p in re.split(r'(?<=[.!?。])\s+|\n+', raw) if len(p.strip()) >= 12]
-        if not parts and len(raw) >= 12:
-            parts = [raw]
-        if parts:
-            try:
-                grade = int(item.get('grade'))
-            except (ValueError, TypeError):
-                grade = 0
-            records.append((grade, idx, parts))
-    if not records:
+        spans.append({'n': len(spans), 'i': index, 't': raw})
+    if not spans:
+        # An all-whitespace batch contains no semantic evidence; caller should
+        # still count it as processed without an API request.
         raise ValueError('분석 가능한 학생부 구절이 없습니다')
-
-    # Reserve at least one excerpt per present grade, even if later grades
-    # occur after many first-year subject records.
-    grades = sorted({g for g, _, _ in records})
-    by_grade = {g: [r for r in records if r[0] == g] for g in grades}
-    chosen = []
-    seen = set()
-
-    def add(idx, part):
-        excerpt = part[:210].strip()
-        key = (idx, excerpt)
-        if len(excerpt) < 12 or key in seen or len(chosen) >= 14:
-            return
-        seen.add(key)
-        chosen.append((idx, excerpt))
-
-    # First pass: opening sentence from one record of every grade.
-    for g in grades:
-        _, idx, parts = by_grade[g][0]
-        add(idx, parts[0])
-
-    # Round robin across grades, taking opening excerpts from distinct sources.
-    max_records = max(len(v) for v in by_grade.values())
-    for k in range(max_records):
-        for g in grades:
-            if k < len(by_grade[g]):
-                _, idx, parts = by_grade[g][k]
-                add(idx, parts[0])
-
-    # Second pass: last sentences, again grade-balanced.
-    for k in range(max_records):
-        for g in grades:
-            if k < len(by_grade[g]):
-                _, idx, parts = by_grade[g][k]
-                if len(parts) > 1:
-                    add(idx, parts[-1])
-
-    # Third pass: middle sentences if there is remaining capacity.
-    for k in range(max_records):
-        for g in grades:
-            if k < len(by_grade[g]):
-                _, idx, parts = by_grade[g][k]
-                if len(parts) > 2:
-                    add(idx, parts[len(parts) // 2])
-
-    return [{'n': n, 'i': idx, 't': excerpt}
-            for n, (idx, excerpt) in enumerate(chosen)]
+    return spans
 
 
 def _payload(sources, candidates):
@@ -357,7 +301,7 @@ def request_semantics(sources,candidates,*,call_fn=None):
         from openai import OpenAI
         params={'model':model,
                 'messages':[{'role':'system','content':SYSTEM},{'role':'user','content':payload}],
-                'max_tokens':1600,'temperature':0,
+                'max_tokens':2200,'temperature':0,
                 'response_format':{'type':'json_object'}}
         # Keep the selected model-specific reasoning setting in one known place.
         if model=='inclusionai/ling-3.2-flash:free':
