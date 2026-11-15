@@ -18,20 +18,35 @@ TAGS = {"learning", "career", "question", "method", "result", "validation", "rev
 HIGH_ACTIONS = {"validation", "revision"}
 
 
+# Frontend stores individual activities as [과목: X] / [동아리활동: Y] blocks.
+# Do not merge different activities into the same grade/source bucket: the
+# downstream scoring is per activity, and merging silently hides later subjects.
+_ACTIVITY_HEADING = re.compile(r"(?m)^\s*\[(?:과목|교과 세특|자율·자치활동|동아리활동|진로활동|행동특성 및 종합의견):\s*[^\]\n]+\]\s*$")
+
+
 def prepare(records, text, grade):
     chunks = _record_chunks(records, text)
     if not chunks:
         raise ValueError("분석할 학생부 기록이 없습니다.")
-    # Exact text excerpts are kept with grade + source, so bogus quotes are rejected.
     sources = []
-    seen = set()
     for chunk in chunks:
-        key = (chunk["grade"], chunk["source"])
-        if key not in seen:
-            seen.add(key)
-            sources.append({"grade": key[0], "source": key[1], "text": ""})
-        index = next(i for i, v in enumerate(sources) if (v["grade"], v["source"]) == key)
-        sources[index]["text"] += (" " if sources[index]["text"] else "") + chunk["text"]
+        original = str(chunk.get("text") or "")
+        matches = list(_ACTIVITY_HEADING.finditer(original))
+        if not matches:
+            if original.strip():
+                sources.append({"grade": chunk["grade"], "source": chunk["source"], "text": original})
+            continue
+        if original[:matches[0].start()].strip():
+            sources.append({"grade": chunk["grade"], "source": chunk["source"],
+                            "text": original[:matches[0].start()]})
+        for i, match in enumerate(matches):
+            end = matches[i+1].start() if i+1 < len(matches) else len(original)
+            segment = original[match.start():end]
+            if segment.strip():
+                title = match.group().strip().strip("[]")
+                sources.append({"grade": chunk["grade"], "source": title, "text": segment})
+    if not sources:
+        raise ValueError("분석할 학생부 기록이 없습니다.")
     return sources
 
 
@@ -121,7 +136,7 @@ def competencies_from_ai(raw, facts):
             # activities must not be merged into a fabricated causal process.
             same_source = defaultdict(list)
             for fact in facts_for:
-                same_source[(fact['grade'],fact['source_index'])].append(fact)
+                same_source[(fact['grade'],fact['source'])].append(fact)
             cap=1
             for activity in same_source.values():
                 t=set().union(*(set(f['tags']) for f in activity))
@@ -207,7 +222,7 @@ def _indicator_score(indicator, linked):
     level2, level3, level4 = REQUIREMENTS[indicator]
     by_source = defaultdict(list)
     for fact in linked:
-        by_source[(fact['grade'], fact['source_index'])].append(fact)
+        by_source[(fact['grade'], fact['source'])].append(fact)
     ratings=[]
     for actions in by_source.values():
         tags=set().union(*(set(f['tags']) for f in actions))
@@ -261,7 +276,10 @@ def majors_from_ai(raw_links, facts, candidates):
                 coverage += weight
                 category_coverage[cat] += weight
                 categories[cat] += weight * rating / 4
-            matched = linked[0] if rating is not None else None
+            # Choose a source that actually carries the indicator's action tags.
+            # Do not print the first unrelated quote for every indicator.
+            required = REQUIREMENTS[indicator][0]
+            matched = next((f for f in linked if set(f["tags"]) & required), None) if rating is not None else None
             details.append({"category": cat, "indicator": indicator, "weight": weight,
                             "rating": rating,
                             "status": "rated" if rating is not None else "insufficient_evidence",
@@ -274,8 +292,20 @@ def majors_from_ai(raw_links, facts, candidates):
         if coverage <= 0:
             continue
         partial = round(sum(categories.values()), 2)
-        reason = str(item.get("reason") or "").strip()[:200]
-        evidence_quote = linked[0]["quote"][:180]
+        reason = ""  # Use only verified student-record quotes, not unverified AI paraphrases.
+        # Show diverse, verifiable subject-specific examples instead of one
+        # repeated early quote. Prefer at most one quote per activity.
+        selected = []
+        seen_sources = set()
+        for fact in linked:
+            source_key = (fact["grade"], fact["source"])
+            if source_key in seen_sources:
+                continue
+            seen_sources.add(source_key)
+            selected.append(f'{fact["grade"]}학년 {fact["source"]}: {fact["quote"][:90]}')
+            if len(selected) >= 4:
+                break
+        evidence_quote = " / ".join(selected)
         if not reason:
             reason = f"학생부에 확인된 관련 활동: {evidence_quote}"
         fit = {
