@@ -1,6 +1,6 @@
 
 /* SEEDU:ON - 학년별 세특 입력과 AI 대시보드 */
-const studentRecords = { 1: "", 2: "", 3: "" };
+const studentRecords = { 1: "", 2: "" };
 let activeGrade = 1;
 
 const $ = (id) => document.getElementById(id);
@@ -30,7 +30,7 @@ function updateCount() {
 }
 
 function switchGrade(grade) {
-  if (grade < 1 || grade > Number(gradeSelect.value)) return;
+  if (grade < 1 || grade > 2 || grade > Number(gradeSelect.value)) return;
 
   saveRecord();
   activeGrade = grade;
@@ -1239,35 +1239,7 @@ if (document.readyState === "loading") {
       "지구과학", "융합과학탐구"
     ],
 
-    3: [
-      "독서와 작문", "영어독해와 작문",
-      "확률과 통계", "미적분Ⅱ",
-      "스포츠문화", "스포츠과학",
-      "논술", "세계시민",
-      "심화일본어", "일본문화",
-      "중국문화", "중국문학읽기1",
-      "데이터과학", "소프트웨어와 생활",
-      "교육의 이해", "인간과 경제활동",
-      "문학과 매체", "문학감상과 비평",
-      "언어생활탐구", "독서토론과 글쓰기",
-      "실용통계", "수학과 문화",
-      "심화영어", "미디어영어",
-      "한국지리탐구", "국제관계의 이해",
-      "법과 사회", "인문학과 윤리",
-      "전자기와 양자", "화학반응의 세계",
-      "생물의 유전", "행성우주과학",
-      "고급물리학", "고급화학",
-      "고급생명과학", "고급지구과학",
-      "지구시스템과학",
-      "여행지리", "사회문제탐구",
-      "기후변화와 환경생태",
-      "과학의 역사와 문화",
-      "윤리문제탐구", "역사로 탐구하는 현대 세계",
-      "과학교양", "운동과 건강",
-      "음악연주와 창작", "음악감상과 비평",
-      "미술창작", "미술감상과 비평",
-      "융합과학탐구"
-    ]
+
   };
 
  
@@ -1285,8 +1257,7 @@ if (document.readyState === "loading") {
 
   const registeredActivities = {
     1: [],
-    2: [],
-    3: []
+    2: []
   };
 
   let editingId = null;
@@ -1416,7 +1387,7 @@ if (document.readyState === "loading") {
 
     // 기존 분석 API와 데이터 형식 호환
     function syncRecords() {
-      for (let grade = 1; grade <= 3; grade++) {
+      for (let grade = 1; grade <= 2; grade++) {
         studentRecords[grade] = makeGradeText(grade);
       }
 
@@ -1638,7 +1609,7 @@ if (document.readyState === "loading") {
         const current =
           Number(currentGradeSelect.value);
 
-        const hasRecords = [1, 2, 3].some(grade =>
+        const hasRecords = [1, 2].some(grade =>
           grade <= current &&
           registeredActivities[grade].length > 0
         );
