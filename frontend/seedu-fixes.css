@@ -83,3 +83,17 @@
 #analysis-results .seedu-original-evidence summary {cursor:pointer;font-weight:600;color:#285e7b;}
 #analysis-results .seedu-original-evidence p {white-space:normal;overflow-wrap:anywhere;line-height:1.7;margin:8px 0;}
 #analysis-results .seedu-ne-guidance {margin:6px 0 0;color:#657080;font-size:.82rem;line-height:1.55;}
+
+/* Critical roadmap overflow repair: never allow a child to widen a grid track */
+#plan-page, #plan-page .page-content, #plan-results, #plan-results > *,
+#plan-results .activity-list, #plan-results .activity-item, #plan-results .subject-list,
+#plan-results .subject-item, #plan-results .grade-plan-item {min-width:0!important;max-width:100%!important;box-sizing:border-box!important;}
+#plan-results {display:grid!important;grid-template-columns:minmax(0,1fr)!important;width:100%!important;}
+#plan-results .result-card,#plan-results .result-intro {grid-column:1/-1!important;min-width:0!important;width:100%!important;}
+#plan-results h2,#plan-results h3,#plan-results p,#plan-results li,#plan-results strong,#plan-results .expected-result,
+#plan-results .activity-number {min-width:0;max-width:100%;white-space:normal!important;overflow-wrap:anywhere!important;word-break:break-word!important;text-overflow:clip!important;line-height:1.65;}
+#plan-results .activity-item {border-bottom:1px solid #e2e8f0;padding:18px 0!important;}
+#plan-results .activity-list {display:grid;grid-template-columns:minmax(0,1fr);gap:12px;}
+#plan-results .activity-steps {padding-inline-start:24px!important;max-width:100%;}
+#plan-results .activity-steps li {padding-inline-start:3px;}
+#plan-results .activity-number {display:inline-block;}

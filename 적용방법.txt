@@ -1,0 +1,16 @@
+[SEEDU:ON 실제 원인 수정 패치 / 83개 학과 복원본 기준]
+
+GitHub의 아래 네 파일만 각각 같은 위치에 덮어쓰세요:
+ frontend/script.js
+ frontend/seedu-fixes.css
+ semantic_engine.py
+ rubric_engine.py
+
+절대 main.py / accounts.py / storage.py / index.html / style.css는 삭제하거나 덮어쓰지 마세요.
+로그인/기존 레이더 차트/학과 3열 화면 유지.
+
+변경: 근거 중도 절단 제거(신규 분석부터) / 이전 절단 문자열은 완결된 의미 요약 표시 / 루브릭 등급 내 근거 충실도 지수 / AI API 연결 시 세특 기반 심화활동 3개(실패 시 학과별 구체적 예시 3개) / 긴 로드맵 카드 줄바꿈.
+
+중요: 기존 저장 결과는 서버의 기존 잘린 문자열이 남아 있으므로 새 분석을 실행해야 새 원문 근거가 반영됩니다.
+브라우저에서 Ctrl+Shift+R로 새 JS/CSS 로드 확인, Render와 Vercel이 모두 Ready인지 확인.
+실제 AI/배포 검증은 수행하지 않았습니다.

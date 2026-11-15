@@ -219,28 +219,24 @@ function radarChart(items) {
 // 화면에서 원문을 중간에 자르지 않고, 핵심 수행 행위를 완결된 문장으로 요약합니다.
 // 원문은 세부 보기에서 별도로 확인할 수 있습니다.
 function evidenceSummary(value) {
-  const raw = String(value ?? "").replace(/\s+/g, " ").trim();
-  if (!raw) return "관련 근거를 확인할 수 없습니다.";
-  const withoutPrefix = raw.replace(/^(?:확인된 활동|근거|과목)\s*[:：]\s*/i, "").trim();
-  const labelMatch = withoutPrefix.match(/^(?:(?:\d학년)\s*)?(과목\s*:\s*[^:：]+|[^:：]{1,22})\s*[:：]\s*/);
-  const label = labelMatch ? labelMatch[1].replace(/^과목\s*:\s*/, "").trim() : "";
-  const body = labelMatch ? withoutPrefix.slice(labelMatch[0].length).trim() : withoutPrefix;
-  const sentenceParts = body.split(/(?<=[.!?。])\s+|\s*[／/]\s*/).map(s => s.trim()).filter(Boolean);
-  const actionPattern = /(분석|비교|조사|탐구|발표|작성|제작|실험|측정|검증|제안|설명|정리|토론|협력|적용|해석|평가|개선|발견|구성|활용|시각화|참여|질문|호응|검토|수집|계획|읽|감상|이해|기록)/;
-  // 긴 인용문·단순 수식보다 학생이 실제로 한 행동이 적힌 문장을 우선 선택합니다.
-  const chosen = sentenceParts.find(s => actionPattern.test(s) && s.length <= 155)
-    || sentenceParts.find(s => actionPattern.test(s)) || sentenceParts[0] || body;
-  if (!chosen) return label ? `${label} 관련 평가 근거를 확인했습니다.` : "평가 근거를 확인했습니다.";
-  if (chosen.length <= 105) return `${label ? `${label}: ` : ""}${chosen.replace(/[.…]+$/g, ".")}`;
-  const verbs = [...chosen.matchAll(new RegExp(actionPattern.source, "g"))].map(m => ({word:m[0],at:m.index}));
-  const mainVerb = verbs.findLast(x => x.at > 8) || verbs[0];
-  const topicQuoted = chosen.match(/[‘'“"]([^’'”"]{3,65})[’'”"]/);
-  const subject = topicQuoted ? topicQuoted[1] : "교과 내용";
-  const acts = verbs.filter(x => x.at > 8).map(x => x.word);
-  const uniqueActs = [...new Set(acts)];
-  const act = uniqueActs.slice(-2).join("·") || (mainVerb ? mainVerb.word : "학습");
-  // 주제·행위 확인까지만 기술하며 결과·능력을 추측하지 않습니다.
-  return `${label ? `${label}: ` : ""}${subject} 관련 ${act} 활동이 기록되어 있습니다.`;
+  let raw = String(value ?? "").replace(/\s+/g," ").trim();
+  if (!raw) return "이 항목에 연결된 근거가 없습니다.";
+  // 기존 저장 결과가 이미 끝부분을 잘랐다면 잘린 구절은 주장하지 않는다.
+  raw = raw.replace(/(?:…|\.{3,})[”"']?/g," ").replace(/\s+/g," ").trim();
+  const labelMatch = raw.match(/(?:^|\s|\/)\s*(?:\d학년\s+)?(?:과목:\s*)?([가-힣A-Za-z0-9· ]{2,24}(?:활동|국어\d?|수학\d?|영어\d?|과학\d?|사회\d?|한국사\d?)?)\s*[:：]/);
+  const label = labelMatch ? labelMatch[1].trim() : "";
+  const body = labelMatch ? raw.slice(labelMatch.index + labelMatch[0].length).trim() : raw.replace(/^확인된 활동\s*[:：]\s*/,"");
+  const candidates = body.split(/(?<=[.!?。])\s+|\s*\/\s*/).map(s=>s.trim()).filter(Boolean);
+  const activity = /(분석|비교|조사|탐구|발표|작성|제작|실험|측정|검증|제안|설명|정리|토론|협력|적용|해석|평가|개선|발견|구성|활용|시각화|참여|검토|수집|계획|감상|읽|학습)/;
+  const sentence = candidates.find(s=>activity.test(s) && s.length<=115 && /[.。]$/.test(s))
+    || candidates.find(s=>activity.test(s) && s.length<=115 && !/[,，]$/.test(s));
+  if (sentence) return `${label?label+": ":""}${sentence.replace(/[.,，]+$/,"")}.`;
+  // 불완전한 인용문은 임의로 문장 끝을 붙여 완성된 것처럼 보이지 않는다.
+  const quoted = body.match(/[“"'‘]([^”"'’]{3,65})[”"'’]/);
+  const topic = quoted ? quoted[1] : "해당 교과 주제";
+  const verbs = [...body.matchAll(new RegExp(activity.source,"g"))].map(x=>x[0]);
+  const verb = verbs[verbs.length-1] || "학습";
+  return `${label?label+": ":""}${topic}에 관한 ${verb} 활동이 기록되어 있습니다.`;
 }
 function conciseText(value) { return evidenceSummary(value); }
 function compactEvidence(value) { return evidenceSummary(value); }
@@ -318,7 +314,7 @@ function renderDashboard(data) {
 
   // Five concise scores; keep the detailed evidence available only on demand.
   const competencies = card("5대 핵심 역량", "span-full seedu-competency-section");
-  competencies.append(el("p", "seedu-section-subtitle", "분석 근거가 확인된 항목만 점수를 표시합니다."));
+  competencies.append(el("p", "seedu-section-subtitle", "검증된 수행 근거를 기반으로 계산한 참고 지수입니다. 실제 능력이나 합격 가능성을 뜻하지 않습니다."));
   const scores = el("div", "seedu-skill-list");
   data.competencies.forEach((item) => {
     const box = el("div", "seedu-skill-item");
@@ -347,7 +343,7 @@ function renderDashboard(data) {
   const visual = el("div", "seedu-competency-visual");
   const radarPanel = el("div", "seedu-radar-panel");
   radarPanel.append(radarChart(data.competencies));
-  radarPanel.append(el("p", "seedu-radar-caption", "역량별 점수 분포 · 근거 미확인 항목은 0점으로 판단하지 않습니다."));
+  radarPanel.append(el("p", "seedu-radar-caption", "근거 기반 참고 지수 · 평가 불가 항목은 0점이 아닌 보류로 처리합니다."));
   visual.append(radarPanel, scores);
   competencies.append(visual);
   analysisResults.append(competencies);
@@ -419,7 +415,7 @@ function renderDashboard(data) {
       const row = el("div", "score-item seedu-indicator-row");
       const heading = el("div", "score-heading");
       heading.append(el("strong", "", category));
-      heading.append(el("span", "score-number", rated ? `${value.toFixed(1)}점 · 근거 ${covered}/${maximum}` : "N/E · 평가 보류"));
+      heading.append(el("span", "score-number", rated ? `${value.toFixed(1)}점 · 근거 ${covered}/${maximum}` : "추가 근거 필요"));
       row.append(heading);
       if (rated) {
         const track = el("div", "bar-track");

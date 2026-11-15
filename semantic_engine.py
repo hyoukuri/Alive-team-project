@@ -133,6 +133,28 @@ def _find_quote_facts(facts, quote):
     return [f for f in facts if q and (_norm(f["quote"]) == q or q in _norm(f["quote"]))]
 
 
+
+def _evidence_reference_score(rating, linked_facts, name):
+    """Rubric-referenced display index: validated evidence richness within rating tier.
+    NOT an empirically calibrated aptitude or admissions metric.
+    """
+    if rating is None or not linked_facts:
+        return None
+    # Tier level stays authoritative: evidence richness can refine, not jump tiers.
+    tag_group = {
+        "학업역량": {"learning","concept","application","method","result","validation","revision"},
+        "진로역량": {"career","continuity","method","application","planning","comparison","result","revision"},
+        "탐구역량": {"question","method","comparison","result","validation","revision"},
+        "공동체역량": {"collaboration","leadership","method","result","revision","validation"},
+        "성장가능성": {"reflection","planning","revision","continuity","result","validation"},
+    }.get(name, set())
+    tags = set().union(*(set(f.get("tags", [])) for f in linked_facts)) & tag_group
+    sources = {(f.get("grade"),f.get("source")) for f in linked_facts}
+    # Stable, explicit index: each independently evidenced feature adds detail.
+    richness = min(18, len(tags)*2 + min(len(sources), 3)*2 + min(len(linked_facts), 3))
+    band_start = {0:0,1:20,2:40,3:60,4:80}.get(rating,0)
+    return min(100, band_start + richness)
+
 def competencies_from_ai(raw, facts):
     by_name = {x.get("name"):x for x in raw if isinstance(x, dict)} if isinstance(raw, list) else {}
     result = []
@@ -199,10 +221,10 @@ def competencies_from_ai(raw, facts):
         for fact in facts_for:
             unique.setdefault((fact['grade'], fact['source']), fact)
         selected_facts = list(unique.values())
-        evidence = (' / '.join(f"{f['grade']}학년 {f['source']}: {f['quote'][:110]}"
+        evidence = (' / '.join(f"{f['grade']}학년 {f['source']}: {f['quote']}"
                              for f in selected_facts[:6])
                     + (f" / 외 {len(selected_facts)-6}개 활동" if len(selected_facts)>6 else '')) if facts_for else "근거를 확인하지 못했습니다. 평가를 보류합니다."
-        result.append({"name":name,"rating":rating,"score":rating*25 if rating is not None else None,
+        result.append({"name":name,"rating":rating,"score":_evidence_reference_score(rating, facts_for, name),
                        "status":"rated" if rating is not None else "insufficient_evidence",
                        "evidence":evidence,
                        "reason":str(item.get("reason") or "")[:220],
@@ -336,7 +358,7 @@ def majors_from_ai(raw_links, facts, candidates):
              -len(f['quote']), f['grade'], f['source']))
         evidence_sources = [{'grade': f['grade'], 'source': f['source'],
                              'quote': f['quote']} for f in ordered]
-        samples = [f"{f['grade']}학년 {f['source']}: {f['quote'][:105]}" for f in ordered[:2]]
+        samples = [f"{f['grade']}학년 {f['source']}: {f['quote']}" for f in ordered[:2]]
         reason = ' / '.join(samples)
         fit = {
             'major': major, 'ratings': nested,
@@ -387,7 +409,7 @@ def _visible_evidence(item):
     if isinstance(src, dict) and src.get("verified") is True:
         quote = str(src.get("quote") or "").strip()
         if quote:
-            return f"{src.get('grade', '?')}학년 {src.get('category', '학생부')} — \"{quote[:180]}{'…' if len(quote)>180 else ''}\""
+            return f"{src.get('grade', '?')}학년 {src.get('category', '학생부')} — \"{quote}\""
     return None
 
 
@@ -455,7 +477,7 @@ def build_analysis(raw, records, text, grade, sources, candidates):
         for f in year_facts:
             if f['source'] not in seen_sources:
                 seen_sources.add(f['source'])
-                chosen.append(f"{f['source']}: “{f['quote'][:75]}{'…' if len(f['quote'])>75 else ''}”")
+                chosen.append(f"{f['source']}: “{f['quote']}”")
         observed = ' / '.join(chosen[:6])
         if len(chosen) > 6:
             observed += f" / 외 {len(chosen)-6}개 활동에서 근거 확인"
