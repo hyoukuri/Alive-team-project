@@ -39,7 +39,7 @@ from semantic_engine import prepare, candidates_from_sources
 from full_record_analysis import analyze_all_sources
 
 LOG = logging.getLogger('seedu.main')
-VERSION = 'rubric-3.2-behavior-anchors'
+VERSION = 'rubric-3.2-evidence-coverage-fix-20261115'
 CACHE_TTL = 6 * 60 * 60
 CACHE_MAX = 128
 LIMIT_COOLDOWN = 120
@@ -199,7 +199,7 @@ def analyze(req: AnalyzeRequest):
             'message': 'AI 사용량 제한으로 전체 세특 분석을 시작할 수 없습니다. 잠시 후 다시 시도해 주세요.',
         })
     if not owner:
-        existing.wait(timeout=42)
+        existing.wait(timeout=240)
         with _lock:
             cached = _cache.get(key)
             if cached and cached[0] > time.monotonic():
