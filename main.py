@@ -39,7 +39,7 @@ from semantic_engine import prepare, candidates_from_sources
 from full_record_analysis import analyze_all_sources
 
 LOG = logging.getLogger('seedu.main')
-VERSION = 'rubric-3.2-evidence-coverage-fix-20261115'
+VERSION = 'rubric-3.2-major-evidence-ui-20261115'
 CACHE_TTL = 6 * 60 * 60
 CACHE_MAX = 128
 LIMIT_COOLDOWN = 120
