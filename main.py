@@ -34,7 +34,7 @@ app.add_middleware(
 
 from accounts import router as accounts_router
 app.include_router(accounts_router)
-from rubric_engine import make_roadmap, analyze_records
+from rubric_engine import make_roadmap, analyze_records, MAJORS
 from semantic_engine import prepare, candidates_from_sources
 from full_record_analysis import analyze_all_sources
 
@@ -70,6 +70,12 @@ class RoadmapRequest(BaseModel):
 @app.get('/')
 def home():
     return {'message': 'SEEDU:ON Rubric 3.2 running', 'rubric_version': VERSION}
+
+
+@app.get('/majors')
+def list_majors():
+    """Available exploration fields; not an aptitude ranking."""
+    return {'count': len(MAJORS), 'majors': sorted(MAJORS)}
 
 
 @app.get('/health')
