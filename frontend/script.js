@@ -249,19 +249,32 @@ function renderDashboard(data) {
 
   analysisResults.append(title);
 
-  // Full-input audit: successful transmission is not the same as evidence found.
+  // All original chunks are still analyzed. Present only grouped summaries.
   if (data.inputCoverage?.activities) {
-    const coverage = data.inputCoverage;
-    const audit = card("세특 과목별 분석 범위", "span-full");
-    audit.append(el("p", "evidence", `입력 활동 ${coverage.activitiesReceived}개 · 원문 처리 ${coverage.activitiesProcessed}개 · 검증된 근거가 발견된 활동 ${coverage.activitiesWithVerifiedFacts}개`));
-    const list = el("ul", "");
-    coverage.activities.forEach((item) => {
-      const isDone = item.inputChars === item.processedChars;
-      const label = `${item.grade}학년 ${item.source}: ${isDone ? "원문 처리 완료" : "원문 미완료"} (${item.inputChars}자), 검증 근거 ${item.verifiedFacts}건${item.verifiedFacts === 0 ? " · 평가 근거 미확인" : ""}`;
-      list.append(el("li", "evidence", label));
+    const cv = data.inputCoverage;
+    const grouped = new Map();
+    cv.activities.forEach((item) => {
+      const name = String(item.source || '기타').replace(/^과목:\s*/, '').trim();
+      const key = `${item.grade}학년 ${name}`;
+      const prev = grouped.get(key) || { chars: 0, processed: 0, facts: 0 };
+      prev.chars += item.inputChars;
+      prev.processed += item.processedChars;
+      prev.facts += item.verifiedFacts;
+      grouped.set(key, prev);
     });
-    audit.append(list);
-    audit.append(el("p", "muted", "원문 처리 완료는 AI에 텍스트가 전달되었다는 뜻입니다. 검증 근거 0건은 활동이 누락됐다는 뜻이 아니라, 해당 활동에서 확정 가능한 근거를 추출하지 못했다는 뜻입니다."));
+    const audit = card('전체 세특 분석 현황', 'span-full');
+    const done = [...grouped.values()].filter(x => x.chars === x.processed).length;
+    const cited = [...grouped.values()].filter(x => x.facts > 0).length;
+    audit.append(el('p', 'evidence', `${grouped.size}개 과목·활동 중 ${done}개 원문 처리 완료 · ${cited}개에서 근거 확인`));
+    const details = el('details', 'coverage-details');
+    details.append(el('summary', '', '과목별 처리 내역 펼쳐보기'));
+    const list = el('ul', '');
+    [...grouped].forEach(([name, item]) => {
+      list.append(el('li', 'evidence', `${name} · ${item.chars === item.processed ? '처리 완료' : '미완료'} · 근거 ${item.facts}건`));
+    });
+    details.append(list);
+    audit.append(details);
+    audit.append(el('p', 'muted', '근거 0건은 능력 부족을 뜻하지 않습니다. 모든 원문을 처리했어도 근거의 정확성은 별도 검토가 필요합니다.'));
     analysisResults.append(audit);
   }
 
@@ -295,7 +308,10 @@ function renderDashboard(data) {
     track.append(fill);
 
     if (item.score !== null) box.append(track);
-    box.append(el("p", "evidence", item.evidence));
+    if (item.evidence) {
+      const shortEvidence = item.evidence.length > 175 ? `${item.evidence.slice(0, 175)}…` : item.evidence;
+      box.append(el("p", "evidence", shortEvidence));
+    }
 
     scores.append(box);
   });
@@ -312,15 +328,16 @@ function renderDashboard(data) {
     const box = card(title, `feedback-card ${className}`);
     const list = el("ul", "");
 
-    values.forEach((value) =>
-      list.append(el("li", "", value))
-    );
+    values.slice(0, 2).forEach((value) => {
+      const brief = String(value);
+      list.append(el("li", "", brief.length > 195 ? brief.slice(0, 195) + '…' : brief));
+    });
 
     box.append(list);
     analysisResults.append(box);
   });
 
-  const majors = card("전공 탐색 결과", "span-full");
+  const majors = card("근거 중심 전공 탐색", "span-full");
   const majorList = el("div", "major-list");
 
   const categoryMax = {
@@ -353,7 +370,7 @@ function renderDashboard(data) {
             : `${i + 1}위 · 평가 근거 부족`
       ),
       el("h3", "major-name", item.name),
-      el("p", "evidence", item.reason)
+      el("p", "evidence", item.reason.length > 270 ? item.reason.slice(0, 270) + '…' : item.reason)
     );
 
     if (hasScore || item.partialScore !== null) {
@@ -390,11 +407,8 @@ function renderDashboard(data) {
         details.append(row);
       });
 
-      if (item.evidence) {
-        details.append(
-          el("p", "evidence", `평가 근거: ${item.evidence}`)
-        );
-      }
+      // Detailed indicator scores remain available above; avoid reprinting the
+      // same long evidence paragraph here.
 
       if (item.improvement) {
         details.append(
@@ -414,7 +428,7 @@ function renderDashboard(data) {
     el(
       "p",
       "disclaimer",
-      "※ AI가 학생부의 일부 수행 근거를 분류하고 Python이 루브릭으로 평가합니다. 종합 적합도는 16개 지표가 모두 평가된 경우에만 제시합니다. 미평가(N/E)는 0점이 아니며 대학 공식 평가나 합격 예측이 아닙니다."
+      "※ 전공은 탐색 후보이며 적합도 순위·합격 확률이 아닙니다. 전체 기록은 분석하되 대표 근거만 표시합니다. N/E는 0점이 아닙니다."
     )
   );
 
@@ -433,7 +447,8 @@ function renderDashboard(data) {
       row.append(
         el("span", "growth-year", `${item.grade}학년`)
       );
-      row.append(el("p", "", item.summary));
+      const summary = String(item.summary || '');
+      row.append(el("p", "", summary.length > 240 ? summary.slice(0, 240) + '…' : summary));
 
       timeline.append(row);
     });
